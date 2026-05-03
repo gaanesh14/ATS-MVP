@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PhotonX ATS</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'] },
+        colors: {
+          brand: {
+            50:  '#E8F3F0',
+            100: '#CFE6E0',
+            200: '#9FCDC2',
+            300: '#6FB3A3',
+            400: '#3F9A85',
+            500: '#0F7B6C',
+            600: '#0C6357',
+            700: '#094B43',
+            800: '#06342E',
+          },
+          ink: { DEFAULT: '#0F172A', muted: '#64748B', soft: '#94A3B8' },
+          page: '#F4F5F7',
+        },
+        boxShadow: {
+          'card': '0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)',
+          'soft': '0 4px 24px rgba(15, 23, 42, 0.06)',
+          'lift': '0 10px 30px rgba(15, 23, 42, 0.12)',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { background: #F4F5F7; }
+  body { font-family: 'Inter', ui-sans-serif, system-ui; color: #0F172A; -webkit-font-smoothing: antialiased; }
+  .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .num { font-variant-numeric: tabular-nums; }
+  /* dnd-kit drag overlay refinement */
+  [data-rbd-draggable-context-id] { user-select: none; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<!-- Lucide icons -->
+<script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+<!-- @dnd-kit via UMD-ish ESM shim -->
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react" src="src/icons.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/data.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/ui.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/shell.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/dashboard.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/jobs.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/job-detail.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/candidates.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/kanban.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/create-job.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/public-page.jsx"></script>
+<script type="text/babel" data-presets="env,react" src="src/app.jsx"></script>
+</body>
+</html>
