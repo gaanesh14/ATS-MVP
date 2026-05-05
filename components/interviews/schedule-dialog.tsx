@@ -73,6 +73,7 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
   const [warnings, setWarnings] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [forceConflict, setForceConflict] = useState(false);
+  const [forceDuplicate, setForceDuplicate] = useState(false);
   const [success, setSuccess] = useState<Interview | null>(null);
 
   // Reset form whenever the dialog re-opens or the source interview changes.
@@ -89,6 +90,7 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
     setError(null);
     setWarnings(null);
     setForceConflict(false);
+    setForceDuplicate(false);
     setSuccess(null);
   }, [props.open, props.interview]);
 
@@ -150,11 +152,19 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
       duration_minutes: duration,
       timezone: tz,
       meeting_provider: provider,
-      meeting_link: provider === 'manual' ? manualLink.trim() : null,
       participants,
       notes: notes.trim() || null,
       force_conflict: forceConflict,
+      force_duplicate: forceDuplicate,
     };
+    // Only send meeting_link when we actually have a value to set or clear.
+    // For 'jitsi' on reschedule, omit it so the server keeps the existing
+    // auto-generated link (sending null would clobber it).
+    if (provider === 'manual') {
+      payload.meeting_link = manualLink.trim();
+    } else if (provider === 'none') {
+      payload.meeting_link = null;
+    }
     if (mode === 'create') {
       payload.application_id = props.applicationId;
       if (props.scheduledById) payload.scheduled_by = props.scheduledById;
@@ -180,11 +190,18 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
     setBusy(false);
 
     if (res.status === 409) {
-      setError(
+      const msg =
         (json.error as string) ??
-          'This candidate already has an interview at that time.'
-      );
-      setForceConflict(true);
+        'This candidate already has an interview at that time.';
+      setError(msg);
+      // The server tags `duplicate_block: true` when the candidate already has
+      // any active interview on the same day. Distinguish so the override
+      // button works correctly the second time around.
+      if ((json as { duplicate_block?: boolean }).duplicate_block) {
+        setForceDuplicate(true);
+      } else {
+        setForceConflict(true);
+      }
       return;
     }
     if (!res.ok) {
@@ -387,12 +404,16 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
                   <span>
                     {error}
-                    {forceConflict && (
+                    {(forceConflict || forceDuplicate) && (
                       <>
                         {' '}
                         <button
                           type="button"
-                          onClick={() => setForceConflict(true)}
+                          onClick={() => {
+                            // Re-submit with the override flag set; the
+                            // existing state already has it true.
+                            void submit();
+                          }}
                           className="ml-1 font-semibold underline"
                         >
                           Schedule anyway

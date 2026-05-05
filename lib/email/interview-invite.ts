@@ -43,12 +43,40 @@ export async function sendInterviewInvite(opts: {
   const senderEmail = process.env.BREVO_SENDER_EMAIL;
   const senderName = process.env.BREVO_SENDER_NAME ?? 'PhotonX ATS';
 
+  // Diagnostic: show the env values the *running* process actually has.
+  // (Print only the prefix + length of the key — never the full secret.)
+  const keyPrefix = apiKey ? apiKey.slice(0, 10) : '(unset)';
+  console.log('[email] env loaded by running process:', {
+    BREVO_API_KEY_prefix: keyPrefix,
+    BREVO_API_KEY_length: apiKey?.length ?? 0,
+    BREVO_SENDER_EMAIL: senderEmail ?? '(unset)',
+    BREVO_SENDER_NAME: senderName,
+    action: opts.action,
+    candidate_email: opts.interview.candidate_email,
+  });
+
   if (!apiKey || !senderEmail) {
+    console.log('[email] ✗ skipping send — missing env');
     return {
       ok: false,
       error:
         'Email skipped: BREVO_API_KEY and/or BREVO_SENDER_EMAIL not set in .env.local. ' +
         'See docs/interviews-setup.md.',
+    };
+  }
+
+  // Catch the wrong-key-type case explicitly. SMTP-relay keys (xsmtpsib-…)
+  // belong in Supabase Auth's SMTP settings, not here. The HTTP API rejects
+  // them with 401 — better to fail loudly with the right hint.
+  if (apiKey.startsWith('xsmtpsib-')) {
+    console.log(
+      '[email] ✗ BREVO_API_KEY starts with xsmtpsib- — that is an SMTP key. The HTTP API needs xkeysib-. Restart `npm run dev` after editing .env.local.',
+    );
+    return {
+      ok: false,
+      error:
+        'BREVO_API_KEY is an SMTP-relay key (xsmtpsib-…). The Brevo HTTP API needs an API key (xkeysib-…). ' +
+        'Generate one in Brevo → SMTP & API → API Keys, replace it in .env.local, then restart npm run dev.',
     };
   }
 
@@ -85,12 +113,16 @@ export async function sendInterviewInvite(opts: {
     status: action === 'cancelled' ? 'CANCELLED' : 'CONFIRMED',
   });
 
-  const payload = {
+  // Brevo's API rejects an empty `cc` array with 400 "cc is missing" — the
+  // field must either contain at least one recipient or be omitted entirely.
+  // Same defensive treatment for `attachment` even though .ics is always set.
+  const ccList = interview.participants
+    .filter((p) => p.email)
+    .map((p) => ({ email: p.email, name: p.name || p.email }));
+
+  const payload: Record<string, unknown> = {
     sender: { email: senderEmail, name: senderName },
     to: [{ email: interview.candidate_email, name: interview.candidate_name }],
-    cc: interview.participants
-      .filter((p) => p.email)
-      .map((p) => ({ email: p.email, name: p.name || p.email })),
     subject,
     htmlContent: htmlBody,
     textContent: textBody,
@@ -101,7 +133,14 @@ export async function sendInterviewInvite(opts: {
       },
     ],
   };
+  if (ccList.length > 0) payload.cc = ccList;
 
+  console.log('[email] → POST', BREVO_ENDPOINT, {
+    to: (payload.to as Array<{ email: string }>).map((t) => t.email),
+    cc: ccList.map((t) => t.email),
+    subject: payload.subject,
+    has_attachment: (payload.attachment as unknown[]).length > 0,
+  });
   try {
     const res = await fetch(BREVO_ENDPOINT, {
       method: 'POST',
@@ -112,13 +151,16 @@ export async function sendInterviewInvite(opts: {
       },
       body: JSON.stringify(payload),
     });
+    const text = await res.text().catch(() => '');
+    console.log('[email] ← Brevo response', { status: res.status, body: text.slice(0, 500) });
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
       return { ok: false, error: `Brevo ${res.status}: ${text || res.statusText}` };
     }
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log('[email] ✗ network error:', msg);
+    return { ok: false, error: msg };
   }
 }
 

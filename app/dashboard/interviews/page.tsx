@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   CalendarClock,
@@ -300,7 +300,10 @@ export default function InterviewsPage() {
       ) : visible.length === 0 ? (
         <EmptyState tab={tab} canManage={canManage} />
       ) : (
-        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-card">
+        // overflow-visible (was overflow-hidden) so the row's action menu can
+        // escape the rounded card. The rows themselves are responsible for
+        // their own corner clipping via the first/last child rounding below.
+        <div className="mt-4 rounded-2xl border border-slate-100 bg-white shadow-card [&>div:first-child]:rounded-t-2xl [&>div:last-child]:rounded-b-2xl">
           {visible.map((i, idx) => (
             <InterviewRow
               key={i.id}
@@ -373,6 +376,8 @@ function InterviewRow({
   onCloseActions: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [menuPlacement, setMenuPlacement] = useState<'bottom' | 'top'>('bottom');
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const tone = INTERVIEW_STATUS_TONE[interview.status];
   const candName = interview.applications?.full_name ?? interview.candidate_name;
   const jobTitle = interview.applications?.jobs?.title ?? null;
@@ -498,7 +503,17 @@ function InterviewRow({
       {canManage && (
         <div className="relative">
           <button
-            onClick={onToggleActions}
+            ref={buttonRef}
+            onClick={() => {
+              // Flip menu placement based on space below the trigger so it
+              // never overflows the viewport. ~280px covers the tallest menu.
+              if (!actionMenuOpen && buttonRef.current) {
+                const rect = buttonRef.current.getBoundingClientRect();
+                const spaceBelow = window.innerHeight - rect.bottom;
+                setMenuPlacement(spaceBelow < 280 ? 'top' : 'bottom');
+              }
+              onToggleActions();
+            }}
             className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
             aria-label="Actions"
           >
@@ -511,15 +526,35 @@ function InterviewRow({
                 onClick={onCloseActions}
                 aria-hidden="true"
               />
-              <div className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white py-1.5 shadow-lift">
-                <ActionItem
-                  icon={<Pencil className="h-3.5 w-3.5" />}
-                  label="Reschedule"
-                  onClick={() => {
-                    onCloseActions();
-                    onEdit();
-                  }}
-                />
+              <div
+                className={cn(
+                  // max-h + overflow + hidden-scrollbar so a menu with many
+                  // items in the future still fits inside the viewport.
+                  'absolute right-0 z-20 w-52 max-h-[70vh] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1.5 shadow-lift',
+                  '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+                  menuPlacement === 'bottom' ? 'top-9' : 'bottom-9',
+                )}
+              >
+                {interview.status === 'scheduled' && (
+                  <ActionItem
+                    icon={<Pencil className="h-3.5 w-3.5" />}
+                    label="Reschedule"
+                    onClick={() => {
+                      onCloseActions();
+                      onEdit();
+                    }}
+                  />
+                )}
+                {interview.status === 'cancelled' && (
+                  <ActionItem
+                    icon={<Pencil className="h-3.5 w-3.5 text-slate-400" />}
+                    label="View details"
+                    onClick={() => {
+                      onCloseActions();
+                      onEdit();
+                    }}
+                  />
+                )}
                 {interview.status === 'scheduled' && (
                   <>
                     <ActionItem

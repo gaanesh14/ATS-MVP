@@ -117,7 +117,7 @@ ${text.slice(0, 30000)}`;
 
 const JD_SYSTEM = `You are a job description parser. Extract structured requirements.
 Return ONLY valid JSON, no markdown. Normalize skill names like a resume parser
-("JS" → "javascript"). If a field is not found, use null or [].`;
+("JS" → "javascript", "ReactJS" → "react"). If a field is not found, use null or [].`;
 
 const JD_PROMPT = (jd: string) => `Extract requirements from this job description. Return JSON exactly:
 {
@@ -130,6 +130,16 @@ const JD_PROMPT = (jd: string) => `Extract requirements from this job descriptio
   "education_required": "phd" | "masters" | "bachelors" | "any" | null,
   "education_field": string | null
 }
+
+Rules for required_skills (CRITICAL):
+- Prefer CONCRETE technologies, languages, frameworks, databases, tools.
+  Examples: "react", "node", "mongodb", "typescript", "docker", "aws".
+- DO list category labels ("full stack", "frontend", "backend", "devops",
+  "ci/cd", "deployment") only if the JD explicitly emphasizes them as a
+  requirement. Don't fabricate them.
+- Do NOT include soft skills, methodology buzzwords, or generic phrases like
+  "team player", "fast learner", "agile", "scrum", "good communication".
+- Aim for 4-10 specific skills. Avoid lumping many tools under one umbrella.
 
 Job description:
 ${jd.slice(0, 12000)}`;
@@ -160,6 +170,21 @@ ${resumeText.slice(0, 4000)}
 Independently judge the candidate against the role. The deterministic score is a
 starting point — it can be wrong. Do NOT anchor to it. If the candidate is missing
 core required skills, the score must reflect that even if vocabulary is similar.
+
+When deciding matched_skills vs missing_skills, USE YOUR OWN JUDGMENT — the
+deterministic scorer can be too literal:
+- A required "full stack" / "fullstack" skill IS satisfied when the candidate
+  has both a frontend technology (React, Vue, Angular, …) AND a backend
+  technology (Node, Django, Express, Rails, Spring, …). MERN/MEAN/MEVN stack
+  candidates ARE full-stack — count it as matched.
+- A required "frontend" / "backend" skill is matched when the candidate has any
+  representative tool from that category (don't require the literal word).
+- A required "deployment" or "ci/cd" skill is matched only if the candidate
+  has shipped to a real platform (Vercel/AWS/Docker/etc.) or used a real CI
+  tool (GitHub Actions/Jenkins/etc.) — vague verbs like "deployed" in a bullet
+  point alone are NOT enough; require a concrete platform.
+- Treat "REST APIs", "RESTful APIs", "API development" as backend-equivalent.
+- Hyphenation/spacing variants ("full-stack" vs "full stack") are the same skill.
 
 Return JSON exactly:
 {
@@ -263,16 +288,107 @@ function escapeRegex(s: string): string {
 
 // Word-boundary match using a custom non-alphanumeric boundary so that skills
 // containing punctuation (c++, c#, .net, node.js) still match correctly.
+// Whitespace, hyphens, and underscores INSIDE the search term are treated as
+// flexible separators so "full stack" matches "full-stack", "fullstack",
+// "full_stack" — JDs and resumes use these variants interchangeably.
 function makeWordBoundaryRegex(s: string): RegExp {
-  return new RegExp(`(^|[^a-z0-9])${escapeRegex(s.toLowerCase())}([^a-z0-9]|$)`, 'i');
+  const lower = s.toLowerCase();
+  // Split on internal separators, escape each chunk, join with a flexible
+  // separator class so any of space/hyphen/underscore/none works.
+  const flexibleBody = lower
+    .split(/[\s\-_]+/)
+    .filter(Boolean)
+    .map(escapeRegex)
+    .join('[\\s\\-_]*');
+  if (!flexibleBody) return /a^/; // never matches
+  return new RegExp(`(^|[^a-z0-9])${flexibleBody}([^a-z0-9]|$)`, 'i');
 }
 
-// Decide if a required skill is present in the candidate's profile. Strict
-// rules to avoid the "java matches javascript" / "go matches going" problem:
+// Vague meta-skills that JDs love listing as if they were concrete tools.
+// When one of these appears in `required_skills`, treat it as satisfied if
+// the candidate has any of the listed concrete member skills (or, for the
+// "full stack" special case, both a frontend AND a backend technology).
+const SKILL_CATEGORY_FRONTEND = [
+  'react', 'reactnative', 'vue', 'angular', 'svelte', 'next', 'nuxt',
+  'remix', 'tailwindcss', 'tailwind', 'bootstrap', 'jquery', 'html',
+  'css', 'scss', 'sass', 'redux', 'mui', 'chakraui', 'shadcn',
+];
+const SKILL_CATEGORY_BACKEND = [
+  'node', 'express', 'expressjs', 'nestjs', 'django', 'flask',
+  'fastapi', 'spring', 'springboot', 'rails', 'laravel', 'gin',
+  'go', 'java', 'python', 'ruby', 'php', '.net', 'dotnet',
+  'graphql', 'rest', 'restapi', 'restfulapi', 'restfulapis',
+];
+const SKILL_CATEGORY_DEPLOYMENT = [
+  'vercel', 'netlify', 'aws', 'gcp', 'azure', 'docker', 'kubernetes',
+  'heroku', 'render', 'cloudflare', 'digitalocean', 'fly', 'flyio',
+  'firebase', 'amplify', 's3', 'ec2', 'lambda', 'cloudrun',
+];
+const SKILL_CATEGORY_CICD = [
+  'githubactions', 'gitlabci', 'jenkins', 'circleci', 'travis',
+  'travisci', 'azurepipelines', 'argocd', 'bitbucketpipelines',
+];
+const SKILL_CATEGORY_DEVOPS = [
+  ...SKILL_CATEGORY_DEPLOYMENT,
+  ...SKILL_CATEGORY_CICD,
+  'terraform', 'ansible', 'pulumi', 'helm', 'prometheus', 'grafana',
+];
+const SKILL_CATEGORY_DATABASE = [
+  'mongodb', 'postgresql', 'mysql', 'sqlite', 'redis', 'dynamodb',
+  'firestore', 'cassandra', 'elasticsearch', 'oracle', 'sqlserver',
+];
+const SKILL_CATEGORY_MOBILE = [
+  'reactnative', 'flutter', 'swift', 'kotlin', 'objectivec', 'ionic', 'expo',
+];
+
+type SkillCategory =
+  | { mode: 'any'; members: string[] }
+  | { mode: 'frontend_and_backend' };
+
+const SKILL_CATEGORIES: Record<string, SkillCategory> = {
+  fullstack: { mode: 'frontend_and_backend' },
+  fullstackdeveloper: { mode: 'frontend_and_backend' },
+  fullstackdevelopment: { mode: 'frontend_and_backend' },
+  frontend: { mode: 'any', members: SKILL_CATEGORY_FRONTEND },
+  frontenddevelopment: { mode: 'any', members: SKILL_CATEGORY_FRONTEND },
+  ui: { mode: 'any', members: SKILL_CATEGORY_FRONTEND },
+  backend: { mode: 'any', members: SKILL_CATEGORY_BACKEND },
+  backenddevelopment: { mode: 'any', members: SKILL_CATEGORY_BACKEND },
+  serverside: { mode: 'any', members: SKILL_CATEGORY_BACKEND },
+  api: { mode: 'any', members: SKILL_CATEGORY_BACKEND },
+  apis: { mode: 'any', members: SKILL_CATEGORY_BACKEND },
+  cicd: { mode: 'any', members: SKILL_CATEGORY_CICD },
+  ci: { mode: 'any', members: SKILL_CATEGORY_CICD },
+  cd: { mode: 'any', members: SKILL_CATEGORY_CICD },
+  deployment: { mode: 'any', members: SKILL_CATEGORY_DEPLOYMENT },
+  deployments: { mode: 'any', members: SKILL_CATEGORY_DEPLOYMENT },
+  devops: { mode: 'any', members: SKILL_CATEGORY_DEVOPS },
+  cloud: { mode: 'any', members: SKILL_CATEGORY_DEPLOYMENT },
+  databases: { mode: 'any', members: SKILL_CATEGORY_DATABASE },
+  database: { mode: 'any', members: SKILL_CATEGORY_DATABASE },
+  mobile: { mode: 'any', members: SKILL_CATEGORY_MOBILE },
+};
+
+function skillExistsInTexts(
+  member: string,
+  candidateSkillsCanon: Set<string>,
+  candidateSkillsText: string,
+  resumeText: string,
+): boolean {
+  if (candidateSkillsCanon.has(member)) return true;
+  if (member.length < 3) return false;
+  const re = makeWordBoundaryRegex(member);
+  return re.test(candidateSkillsText) || re.test(resumeText);
+}
+
+// Decide if a required skill is present in the candidate's profile.
 //   1. Canonical equality against the candidate's parsed skills.
-//   2. Word-boundary match in the candidate's raw skill strings.
-//   3. Word-boundary match in the resume body — only for skills with length
-//      >= 3 (so "go", "ml", "ai", "r" can't false-match inside other words).
+//   2. Category expansion (full stack / frontend / cicd / deployment / …).
+//   3. Word-boundary match in the candidate's raw skill strings AND resume body
+//      with flexible internal separators ("full stack" → "full-stack").
+//
+// Skills shorter than 3 chars only match exact (avoids "go" → "going",
+// "ml" → "html" false positives).
 function skillMatches(
   req: string,
   candidateSkillsCanon: Set<string>,
@@ -283,12 +399,35 @@ function skillMatches(
   if (!reqCanon) return false;
   if (candidateSkillsCanon.has(reqCanon)) return true;
 
+  // Category expansion — vague terms are satisfied by concrete member skills.
+  const cat = SKILL_CATEGORIES[reqCanon];
+  if (cat) {
+    if (cat.mode === 'frontend_and_backend') {
+      const hasFE = SKILL_CATEGORY_FRONTEND.some((m) =>
+        skillExistsInTexts(m, candidateSkillsCanon, candidateSkillsText, resumeText),
+      );
+      const hasBE = SKILL_CATEGORY_BACKEND.some((m) =>
+        skillExistsInTexts(m, candidateSkillsCanon, candidateSkillsText, resumeText),
+      );
+      if (hasFE && hasBE) return true;
+    } else {
+      if (
+        cat.members.some((m) =>
+          skillExistsInTexts(m, candidateSkillsCanon, candidateSkillsText, resumeText),
+        )
+      )
+        return true;
+    }
+    // Category didn't match — fall through to literal text match below in
+    // case the resume actually says "full stack" verbatim.
+  }
+
   const minLen = Math.min(req.length, reqCanon.length);
   if (minLen < 3) return false;
 
-  // Try both canonical and original forms — handles "k8s" written literally
-  // in the resume even though our canonical is "kubernetes".
-  for (const variant of new Set([reqCanon, req.toLowerCase()])) {
+  // Try both the original input and the canonical form — handles cases like
+  // "react.js" (original) vs "react" (canonical) cleanly.
+  for (const variant of new Set([req.toLowerCase(), reqCanon])) {
     if (variant.length < 3) continue;
     const re = makeWordBoundaryRegex(variant);
     if (re.test(candidateSkillsText) || re.test(resumeText)) return true;
@@ -639,10 +778,26 @@ export async function POST(
 
     // Apply fallbacks BEFORE scoring so the deterministic scorer sees the
     // best information we have, not just what the LLM extractor produced.
-    if (parsedResume.experience_years == null && userSupplied.experience_years != null) {
+    //
+    // The candidate's self-reported `experience_years` and `location` from the
+    // apply form WIN over the LLM extraction — the candidate knows their own
+    // tenure better than a PDF parser, and LLM mis-reads (e.g. picking up the
+    // most recent role's duration instead of total) are the leading cause of
+    // wrong experience scores. We still log a discrepancy in ats_issues so the
+    // recruiter can spot inflated self-reports.
+    const llmExpYears = parsedResume.experience_years;
+    if (userSupplied.experience_years != null) {
       parsedResume.experience_years = userSupplied.experience_years;
+      if (
+        llmExpYears != null &&
+        Math.abs(llmExpYears - userSupplied.experience_years) >= 2
+      ) {
+        gates.issues.push(
+          `Self-reported ${userSupplied.experience_years} yrs differs from resume estimate ${llmExpYears} yrs.`,
+        );
+      }
     }
-    if (parsedResume.location == null && userSupplied.location != null) {
+    if (userSupplied.location != null) {
       parsedResume.location = userSupplied.location;
     }
     if (parsedJD.min_years_experience == null && jdMinExperience != null) {
@@ -710,18 +865,19 @@ export async function POST(
 
     const finalScore = Math.max(0, Math.min(100, validated));
 
-    // -- Persist. For location + experience, fall back to the candidate's
-    //    self-reported values when the LLM couldn't extract from the PDF.
-    //    The parser's value still wins when present.
+    // -- Persist. The candidate's self-reported values WIN over the LLM
+    //    extraction for experience + location (see the pre-score fallback
+    //    block above for rationale). If the candidate left a field blank,
+    //    we fall back to whatever the LLM was able to pull from the PDF.
     const mergedParsed = {
       ...parsedResume,
       experience_years:
-        (parsedResume as { experience_years?: number | null }).experience_years ??
         userSupplied.experience_years ??
+        (parsedResume as { experience_years?: number | null }).experience_years ??
         null,
       location:
-        (parsedResume as { location?: string | null }).location ??
         userSupplied.location ??
+        (parsedResume as { location?: string | null }).location ??
         null,
     };
 

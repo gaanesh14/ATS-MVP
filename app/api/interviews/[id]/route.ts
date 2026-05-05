@@ -53,7 +53,7 @@ export async function PATCH(
 
   const { data: existing, error: exErr } = await supabase
     .from('interviews')
-    .select('*')
+    .select('*, applications(jobs(title))')
     .eq('id', id)
     .maybeSingle();
   if (exErr || !existing) {
@@ -63,6 +63,10 @@ export async function PATCH(
     );
   }
   const current = existing as Interview;
+  const jobTitle =
+    (existing as unknown as {
+      applications?: { jobs?: { title?: string | null } | null } | null;
+    }).applications?.jobs?.title ?? '';
 
   const update: Partial<Interview> & Record<string, unknown> = {};
 
@@ -105,9 +109,25 @@ export async function PATCH(
     if (p === 'none') update.meeting_link = null;
   }
   if ('meeting_link' in body) {
-    update.meeting_link = body.meeting_link
+    const incoming = body.meeting_link
       ? String(body.meeting_link).trim()
       : null;
+    // Defensive guard: if the client sent meeting_link=null but the effective
+    // provider is still jitsi (which auto-generates links), don't clobber the
+    // existing link. Older versions of the dialog sent null unconditionally.
+    const effectiveProvider =
+      (update.meeting_provider as InterviewMeetingProvider) ?? current.meeting_provider;
+    if (incoming === null && effectiveProvider === 'jitsi') {
+      if (!current.meeting_link) {
+        update.meeting_link = generateJitsiLink({
+          jobTitle: jobTitle || 'interview',
+          candidateName: current.candidate_name,
+        });
+      }
+      // else: leave update.meeting_link unset → current value persists
+    } else {
+      update.meeting_link = incoming;
+    }
   }
 
   // Re-validate the merged slot if anything timing-related changed.
@@ -186,14 +206,14 @@ export async function PATCH(
     if (wasCancelled) {
       const r = await sendInterviewInvite({
         interview: updated,
-        jobTitle: '',
+        jobTitle,
         action: 'cancelled',
       });
       if (!r.ok) emailWarning = r.error;
     } else if (timingChanged) {
       const r = await sendInterviewInvite({
         interview: updated,
-        jobTitle: '',
+        jobTitle,
         action: 'rescheduled',
       });
       if (!r.ok) emailWarning = r.error;
@@ -224,12 +244,16 @@ export async function DELETE(
 
   const { data: existing } = await supabase
     .from('interviews')
-    .select('*')
+    .select('*, applications(jobs(title))')
     .eq('id', id)
     .maybeSingle();
   if (!existing) {
     return NextResponse.json({ error: 'Interview not found' }, { status: 404 });
   }
+  const delJobTitle =
+    (existing as unknown as {
+      applications?: { jobs?: { title?: string | null } | null } | null;
+    }).applications?.jobs?.title ?? '';
 
   const { data: row, error } = await supabase
     .from('interviews')
@@ -243,7 +267,7 @@ export async function DELETE(
   try {
     const r = await sendInterviewInvite({
       interview: row as Interview,
-      jobTitle: '',
+      jobTitle: delJobTitle,
       action: 'cancelled',
     });
     if (!r.ok) emailWarning = r.error;
