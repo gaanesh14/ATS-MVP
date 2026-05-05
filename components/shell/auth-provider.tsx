@@ -138,6 +138,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      const mustSetPassword = Boolean(
+        (user.user_metadata as { must_set_password?: boolean } | null)?.must_set_password
+      );
+      if (mustSetPassword) {
+        router.replace('/accept-invite');
+        return;
+      }
+
       const m = await fetchMember(user);
       if (!active) return;
 

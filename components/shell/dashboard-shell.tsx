@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/shell/sidebar';
 import { Topbar } from '@/components/shell/topbar';
+import { UpcomingInterviewsProvider } from '@/components/interviews/upcoming-provider';
+import { InterviewAlertBanner } from '@/components/interviews/alert-banner';
 
 // Owns the mobile-sidebar open/closed state and lays out the dashboard
 // chrome. Above lg the sidebar is always visible; below lg it slides in over
@@ -19,23 +21,28 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   return (
-    <div className="flex min-h-screen bg-page lg:h-screen lg:overflow-hidden">
-      <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+    <UpcomingInterviewsProvider>
+      <div className="flex min-h-screen bg-page lg:h-screen lg:overflow-hidden">
+        <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
 
-      {/* Backdrop — only on mobile when the drawer is open */}
-      {mobileOpen && (
-        <button
-          type="button"
-          aria-label="Close menu"
-          onClick={() => setMobileOpen(false)}
-          className="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm lg:hidden"
-        />
-      )}
+        {/* Backdrop — only on mobile when the drawer is open */}
+        {mobileOpen && (
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setMobileOpen(false)}
+            className="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm lg:hidden"
+          />
+        )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onMenuClick={() => setMobileOpen(true)} />
-        <main className="flex-1 lg:overflow-y-auto">{children}</main>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Topbar onMenuClick={() => setMobileOpen(true)} />
+          <main className="flex-1 lg:overflow-y-auto">
+            <InterviewAlertBanner />
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </UpcomingInterviewsProvider>
   );
 }

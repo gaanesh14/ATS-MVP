@@ -11,7 +11,16 @@ import {
   type Stage,
   type JobStage,
   type StageColor,
+  type Interview,
 } from '@/lib/supabase';
+import { ScheduleInterviewDialog } from '@/components/interviews/schedule-dialog';
+import {
+  INTERVIEW_STATUS_LABEL,
+  INTERVIEW_STATUS_TONE,
+  formatInterviewDateTime,
+  formatDuration,
+  isUpcoming,
+} from '@/lib/interviews';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -69,6 +78,8 @@ import {
   ArrowDown,
   Eye,
   Tag,
+  CalendarClock,
+  Video,
 } from 'lucide-react';
 
 type AnswerWithQuestion = {
@@ -269,7 +280,7 @@ function JobStatCard({
 export default function JobDetailPage({ params }: { params: { id: string } }) {
   const { id: jobId } = params;
   const router = useRouter();
-  const { role } = useAuth();
+  const { role, member } = useAuth();
   const canEditJob = can(role, 'jobs.edit');
   const canDeleteJob = can(role, 'jobs.delete');
   const canMoveStage = can(role, 'applications.update');
@@ -299,6 +310,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [answers, setAnswers] = useState<AnswerWithQuestion[]>([]);
   const [questions, setQuestions] = useState<JobQuestion[]>([]);
   const [reparsing, setReparsing] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [candidateInterviews, setCandidateInterviews] = useState<Interview[]>([]);
 
   const [showAddStage, setShowAddStage] = useState(false);
   const [newStageLabel, setNewStageLabel] = useState('');
@@ -514,6 +527,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       .select('answer, job_questions(question)')
       .eq('application_id', app.id);
     setAnswers((data as unknown as AnswerWithQuestion[]) ?? []);
+    refreshInterviews(app.id);
+  }
+
+  async function refreshInterviews(appId: string) {
+    const { data } = await supabase
+      .from('interviews')
+      .select('*')
+      .eq('application_id', appId)
+      .order('scheduled_at', { ascending: true });
+    setCandidateInterviews((data as Interview[]) ?? []);
   }
 
   async function deleteJob() {
@@ -1406,6 +1429,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       </div>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-2">
+                      {can(role, 'interviews.schedule') && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSchedule(true)}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-[12.5px] font-medium text-white shadow-sm transition-colors hover:bg-brand-600"
+                        >
+                          <CalendarClock className="h-3.5 w-3.5" />
+                          Schedule interview
+                        </button>
+                      )}
                       <StagePill stage={stage} job={job} />
                     </div>
                   </div>
@@ -1807,6 +1840,70 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                 </div>
 
+                {/* Interviews */}
+                {candidateInterviews.length > 0 && (
+                  <div className="border-t border-slate-100 px-6 py-5">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="inline-flex items-center gap-2 text-[14px] font-semibold text-slate-900">
+                        <CalendarClock className="h-4 w-4 text-slate-400" />
+                        Interviews
+                      </h3>
+                      <span className="text-[11.5px] text-slate-500">
+                        {candidateInterviews.filter(isUpcoming).length} upcoming
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {candidateInterviews.map((iv) => {
+                        const tone = INTERVIEW_STATUS_TONE[iv.status];
+                        return (
+                          <div
+                            key={iv.id}
+                            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">
+                                <CalendarClock className="h-4 w-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="truncate text-[13px] font-semibold text-slate-900">
+                                  {formatInterviewDateTime(iv.scheduled_at, iv.timezone)}
+                                </div>
+                                <div className="text-[11.5px] text-slate-500">
+                                  {formatDuration(iv.duration_minutes)}
+                                  {iv.participants.length > 0 &&
+                                    ` · ${iv.participants.length} interviewer${iv.participants.length > 1 ? 's' : ''}`}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {iv.meeting_link && iv.status === 'scheduled' && (
+                                <a
+                                  href={iv.meeting_link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-brand-600 hover:border-brand-200 hover:bg-brand-50/40"
+                                >
+                                  <Video className="h-3.5 w-3.5" />
+                                  Join
+                                </a>
+                              )}
+                              <span
+                                className={cn(
+                                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold ring-1',
+                                  tone.pill
+                                )}
+                              >
+                                <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} />
+                                {INTERVIEW_STATUS_LABEL[iv.status]}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Screening answers */}
                 {answers.length > 0 && (
                   <div className="border-t border-slate-100 bg-slate-50/40 px-6 py-5">
@@ -1838,6 +1935,23 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* Schedule interview dialog — opens from the candidate dialog header */}
+      {selectedApp && (
+        <ScheduleInterviewDialog
+          open={showSchedule}
+          onOpenChange={setShowSchedule}
+          applicationId={selectedApp.id}
+          candidateName={selectedApp.full_name}
+          candidateEmail={selectedApp.email}
+          jobTitle={job?.title ?? ''}
+          scheduledById={member?.id ?? null}
+          onSaved={() => {
+            setShowSchedule(false);
+            refreshInterviews(selectedApp.id);
+          }}
+        />
+      )}
     </main>
   );
 }

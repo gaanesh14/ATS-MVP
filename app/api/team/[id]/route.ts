@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { sendTeamInvite } from '@/lib/supabase-admin';
 
 export const runtime = 'nodejs';
 
@@ -111,7 +112,25 @@ export async function PATCH(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ member: data });
+
+  // Resend-invite path: when status is set to 'pending' (the Manage member
+  // dialog's "Resend invite" button does this), trigger a fresh invite email.
+  // Failures here are non-fatal — the row was already updated.
+  let emailWarning: string | null = null;
+  if ('status' in update && update.status === 'pending') {
+    const origin = req.headers.get('origin') ?? new URL(req.url).origin;
+    const send = await sendTeamInvite({
+      email: data.email,
+      name: data.name,
+      origin,
+    });
+    if (!send.ok) {
+      emailWarning = send.error;
+      console.warn(`[team] resend invite failed for ${data.email}: ${send.error}`);
+    }
+  }
+
+  return NextResponse.json({ member: data, emailWarning });
 }
 
 // DELETE /api/team/[id]

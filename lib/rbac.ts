@@ -13,6 +13,8 @@ export type Permission =
   // Move stage, add tag, re-parse, bulk actions. Anything that mutates an
   // application row falls under this single permission.
   | 'applications.update'
+  | 'interviews.schedule'
+  | 'interviews.manage'
   | 'team.view'
   | 'team.invite'
   | 'team.edit'
@@ -26,6 +28,8 @@ const ROLE_PERMISSIONS: Record<TeamRole, Permission[]> = {
     'jobs.edit',
     'jobs.delete',
     'applications.update',
+    'interviews.schedule',
+    'interviews.manage',
     'team.view',
     'team.invite',
     'team.edit',
@@ -39,6 +43,8 @@ const ROLE_PERMISSIONS: Record<TeamRole, Permission[]> = {
     'jobs.edit',
     'jobs.delete',
     'applications.update',
+    'interviews.schedule',
+    'interviews.manage',
     'team.view',
     'settings.edit_self',
     'settings.edit_org',

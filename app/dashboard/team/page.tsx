@@ -376,6 +376,9 @@ function InviteDialog({
   const [role, setRole] = useState<TeamRole>('recruiter');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Soft warning shown when the row was saved but the email layer failed
+  // (e.g. Brevo SMTP not configured yet, service-role key missing).
+  const [emailWarning, setEmailWarning] = useState<string | null>(null);
 
   function reset() {
     setEmail('');
@@ -383,10 +386,12 @@ function InviteDialog({
     setRole('recruiter');
     setSubmitting(false);
     setError(null);
+    setEmailWarning(null);
   }
 
   async function send() {
     setError(null);
+    setEmailWarning(null);
     if (!email.trim()) {
       setError('Email is required.');
       return;
@@ -401,6 +406,15 @@ function InviteDialog({
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       setError(err.error ?? `Failed: HTTP ${res.status}`);
+      return;
+    }
+    const json = (await res.json().catch(() => ({}))) as {
+      emailSent?: boolean;
+      emailWarning?: string | null;
+    };
+    if (json.emailWarning) {
+      // Row saved, email failed. Keep the dialog open so the user sees why.
+      setEmailWarning(json.emailWarning);
       return;
     }
     reset();
@@ -509,17 +523,46 @@ function InviteDialog({
           </div>
         )}
 
+        {emailWarning && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-[12.5px] text-amber-800">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+            <div className="leading-relaxed">
+              <p className="font-medium">Saved, but the invite email didn&apos;t send.</p>
+              <p className="mt-0.5 text-amber-700">{emailWarning}</p>
+              <p className="mt-1 text-amber-700">
+                The team member is now under <strong>Pending invites</strong>. Use{' '}
+                <strong>Resend invite</strong> on their row once SMTP is configured.
+                See <code>docs/brevo-email-setup.md</code>.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button
-            onClick={send}
-            disabled={submitting || !email.trim()}
-            className="bg-brand-500 hover:bg-brand-600"
-          >
-            {submitting ? 'Sending…' : 'Send invite'}
-          </Button>
+          {emailWarning ? (
+            <Button
+              onClick={() => {
+                reset();
+                onSent();
+              }}
+              className="bg-brand-500 hover:bg-brand-600"
+            >
+              Got it
+            </Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button
+                onClick={send}
+                disabled={submitting || !email.trim()}
+                className="bg-brand-500 hover:bg-brand-600"
+              >
+                {submitting ? 'Sending…' : 'Send invite'}
+              </Button>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -21,8 +21,9 @@ function LoginPage() {
   const params = useSearchParams();
   const next = params.get('next') ?? '/dashboard';
   const flash = params.get('flash');
+  const emailFromUrl = params.get('email') ?? '';
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(emailFromUrl);
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -34,6 +35,10 @@ function LoginPage() {
       if (user) router.replace(next);
     });
   }, [router, next]);
+
+  useEffect(() => {
+    setEmail(emailFromUrl);
+  }, [emailFromUrl]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -94,6 +99,12 @@ function LoginPage() {
           <div className="mt-5 flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 text-[13px] text-emerald-700">
             <Mail className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <span>Account created. Sign in to continue.</span>
+          </div>
+        )}
+        {flash === 'invite-ready' && (
+          <div className="mt-5 flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 text-[13px] text-emerald-700">
+            <Lock className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>Password saved. Sign in to continue.</span>
           </div>
         )}
 

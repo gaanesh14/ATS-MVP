@@ -8,6 +8,7 @@ import {
   Briefcase,
   Users,
   UsersRound,
+  CalendarClock,
   Settings,
   HelpCircle,
   ChevronDown,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/shell/auth-provider';
+import { useUpcomingInterviews } from '@/components/interviews/upcoming-provider';
 import { roleLabel } from '@/lib/rbac';
 
 export function Sidebar({
@@ -29,6 +31,7 @@ export function Sidebar({
   const isActive = (href: string, exact = false) =>
     exact ? pathname === href : pathname.startsWith(href);
   const { member, signOut } = useAuth();
+  const { in1hCount } = useUpcomingInterviews();
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -114,6 +117,13 @@ export function Sidebar({
           label="Applicants"
         />
         <NavItem
+          href="/dashboard/interviews"
+          active={isActive('/dashboard/interviews')}
+          icon={<CalendarClock className="h-[18px] w-[18px]" />}
+          label="Interviews"
+          badge={in1hCount > 0 ? in1hCount : null}
+        />
+        <NavItem
           href="/dashboard/team"
           active={isActive('/dashboard/team')}
           icon={<UsersRound className="h-[18px] w-[18px]" />}
@@ -194,11 +204,13 @@ function NavItem({
   active,
   icon,
   label,
+  badge,
 }: {
   href: string;
   active: boolean;
   icon: React.ReactNode;
   label: string;
+  badge?: number | null;
 }) {
   return (
     <Link
@@ -209,7 +221,21 @@ function NavItem({
       )}
     >
       <span className={active ? 'text-brand-600' : 'text-slate-400'}>{icon}</span>
-      <span>{label}</span>
+      <span className="flex-1">{label}</span>
+      {badge != null && badge > 0 && (
+        <span
+          className={cn(
+            'inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10.5px] font-semibold leading-none',
+            active
+              ? 'bg-brand-500 text-white'
+              : 'bg-amber-500 text-white shadow-sm'
+          )}
+          aria-label={`${badge} starting within an hour`}
+          title={`${badge} interview${badge === 1 ? '' : 's'} starting within the hour`}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </Link>
   );
 }

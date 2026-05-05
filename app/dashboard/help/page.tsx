@@ -68,6 +68,10 @@ const FAQS: FAQ[] = [
     q: "Why can't I invite team members?",
     a: 'Only Super Admins can invite. If your role badge in the sidebar says Admin or Recruiter, ask a Super Admin to upgrade you, or to send the invite themselves.',
   },
+  {
+    q: 'What happens when I invite someone?',
+    a: 'A pending row is added to your Team list and an email goes out via Brevo SMTP. The recipient clicks the magic link, sets a password, and is auto-logged-in to the dashboard. Their team_members row flips from "pending" to "active" automatically. If the email fails (SMTP not yet configured), the invite still saves — you\'ll see a warning, and the "Resend invite" button on their row retries the email.',
+  },
 ];
 
 type QuickLink = {
@@ -223,6 +227,7 @@ export default function HelpPage() {
           // Project-internal docs live under /docs in the repo. Keep an
           // anchor that downloads or opens the index when served.
           href="/docs"
+          openInNewTab
         />
       </div>
 
@@ -239,18 +244,21 @@ function ContactCard({
   body,
   action,
   href,
+  openInNewTab = false,
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
   action: string;
   href: string;
+  openInNewTab?: boolean;
 }) {
   const isExternal = href.startsWith('mailto:') || href.startsWith('http');
   return (
     <a
       href={href}
-      target={isExternal ? '_self' : undefined}
+      target={openInNewTab ? '_blank' : isExternal ? '_self' : undefined}
+      rel={openInNewTab ? 'noreferrer' : undefined}
       className="group rounded-2xl border border-slate-100 bg-white p-5 shadow-card transition-all hover:border-slate-200 hover:shadow-soft"
     >
       <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600">

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { sendTeamInvite } from '@/lib/supabase-admin';
 
 export const runtime = 'nodejs';
 
@@ -23,9 +24,10 @@ export async function GET() {
 
 // POST /api/team
 // Body: { email, name?, role, title? }
-// Creates a pending invite. Email must be unique. Once Supabase Auth is
-// enabled, send the invite via supabase.auth.admin.inviteUserByEmail in
-// addition to writing the row.
+// Creates a pending invite, then sends an invite email via Supabase Auth
+// (which delivers through the SMTP relay configured in the project — Brevo,
+// in our case). Email failures are non-fatal: the team_members row is
+// already saved and a recruiter can resend later.
 export async function POST(req: Request) {
   let body: Record<string, unknown>;
   try {
@@ -55,6 +57,8 @@ export async function POST(req: Request) {
     .eq('email', email)
     .maybeSingle();
 
+  let memberRow: Record<string, unknown>;
+
   if (existing) {
     if (existing.status === 'archived') {
       // Reactivate an archived row instead of erroring out.
@@ -72,30 +76,48 @@ export async function POST(req: Request) {
         .select('*')
         .single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ member: data });
+      memberRow = data;
+    } else {
+      return NextResponse.json(
+        { error: 'A team member with that email already exists' },
+        { status: 409 }
+      );
     }
-    return NextResponse.json(
-      { error: 'A team member with that email already exists' },
-      { status: 409 }
-    );
+  } else {
+    const { data, error } = await supabase
+      .from('team_members')
+      .insert({
+        email,
+        name,
+        role,
+        title,
+        status: 'pending',
+        invited_at: new Date().toISOString(),
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    memberRow = data;
   }
 
-  const { data, error } = await supabase
-    .from('team_members')
-    .insert({
-      email,
-      name,
-      role,
-      title,
-      status: 'pending',
-      invited_at: new Date().toISOString(),
-    })
-    .select('*')
-    .single();
+  // Send the invite email. We do this AFTER the DB write so a failed send
+  // doesn't lose the row.
+  const origin = req.headers.get('origin') ?? new URL(req.url).origin;
+  const send = await sendTeamInvite({ email, name, origin });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!send.ok) {
+    console.warn(`[team] invite email failed for ${email}: ${send.error}`);
   }
-  return NextResponse.json({ member: data });
+
+  return NextResponse.json({
+    member: memberRow,
+    emailSent: send.ok,
+    // Surface a hint to the client when the email layer wasn't configured —
+    // helpful for the first-time setup error like "service-role key missing"
+    // or "SMTP not configured in Supabase".
+    emailWarning: send.ok ? null : send.error,
+  });
 }
-

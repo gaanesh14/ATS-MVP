@@ -101,6 +101,47 @@ export type TeamMember = {
   created_at: string;
 };
 
+export type InterviewStatus =
+  | 'scheduled'
+  | 'completed'
+  | 'cancelled'
+  | 'no_show';
+
+export type InterviewMeetingProvider =
+  | 'jitsi'
+  | 'google_meet'
+  | 'manual'
+  | 'none';
+
+export type InterviewParticipant = {
+  id: string;
+  name: string;
+  email: string;
+  role?: string | null;
+};
+
+export type Interview = {
+  id: string;
+  application_id: string;
+  job_id: string;
+  scheduled_by: string | null;
+  candidate_email: string;
+  candidate_name: string;
+  scheduled_at: string;
+  duration_minutes: number;
+  timezone: string;
+  status: InterviewStatus;
+  meeting_provider: InterviewMeetingProvider;
+  meeting_link: string | null;
+  participants: InterviewParticipant[];
+  notes: string | null;
+  reminder_sent_at: string | null;
+  reminder_24h_sent_at: string | null;
+  reminder_1h_sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Application = {
   id: string;
   job_id: string;
