@@ -62,8 +62,57 @@ function MiniJobCard({ job, onClick }) {
 
 }
 
+function normalizeAdminProfile(source) {
+  if (!source) return null;
+  const name =
+  typeof source === "string" ? source :
+  source.name || source.fullName || source.full_name ||
+  source.user_metadata && source.user_metadata.name || "";
+  const email =
+  typeof source === "object" && (source.email || source.user_metadata && source.user_metadata.email) || "";
+  const cleanName = String(name || "").trim();
+  const cleanEmail = String(email || "").trim();
+  if (!cleanName && !cleanEmail) return null;
+  const resolvedName = cleanName || cleanEmail.split("@")[0] || "Admin";
+  return {
+    name: resolvedName,
+    firstName: resolvedName.split(" ").filter(Boolean)[0] || resolvedName,
+    email: cleanEmail
+  };
+}
+
+function getCurrentAdminProfile() {
+  const fallback = {
+    name: "Darlene Robertson",
+    firstName: "Darlene",
+    email: "darlene@photonx.com"
+  };
+
+  try {
+    const direct =
+    normalizeAdminProfile(window.__ATS_CURRENT_ADMIN__) ||
+    normalizeAdminProfile(window.currentAdmin) ||
+    normalizeAdminProfile(window.currentUser) ||
+    normalizeAdminProfile(window.loggedInAdmin);
+    if (direct) return direct;
+
+    const settingsRaw = window.localStorage && window.localStorage.getItem("photonx:settings:v1");
+    if (settingsRaw) {
+      const settings = JSON.parse(settingsRaw);
+      const fromSettings = normalizeAdminProfile({
+        name: settings && settings.fullName,
+        email: settings && settings.email
+      });
+      if (fromSettings) return fromSettings;
+    }
+  } catch (error) {}
+
+  return fallback;
+}
+
 function Dashboard({ navigate }) {
   const recent = MOCK.JOBS.slice(0, 6);
+  const admin = React.useMemo(() => getCurrentAdminProfile(), []);
 
   // Top candidates today: synthesize a few high-ATS folks across jobs
   const topCandidates = React.useMemo(() => {
@@ -87,7 +136,7 @@ function Dashboard({ navigate }) {
         <div className="flex items-center gap-3 text-sm">
           <span className="w-7 h-7 rounded-full bg-white grid place-items-center shadow-sm"><Icons.Sparkles className="w-3.5 h-3.5 text-brand-600" /></span>
           <span className="text-slate-700">
-            <span className="font-medium">Good morning, Darlene.</span>{" "}
+            <span className="font-medium">Good morning, {admin.firstName}.</span>{" "}
             <span className="text-slate-600">You have <span className="font-semibold text-brand-700 num">{highAtsToReview} candidates</span> with ATS ≥ 80 awaiting review</span>
           </span>
         </div>

@@ -23,7 +23,7 @@ import { cn, formatDate, formatExperienceRange } from '@/lib/utils';
 type AppWithJob = Application & { jobs?: { title: string } | null };
 
 export default function DashboardPage() {
-  const { role } = useAuth();
+  const { role, member, authUser } = useAuth();
   const canCreateJob = can(role, 'jobs.create');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [recentApps, setRecentApps] = useState<AppWithJob[]>([]);
@@ -61,6 +61,13 @@ export default function DashboardPage() {
       .slice(0, 5);
   }, [recentApps]);
 
+  const displayName =
+    member?.name?.trim() ||
+    ((authUser?.user_metadata as { name?: string } | null)?.name ?? '').trim() ||
+    authUser?.email?.split('@')[0] ||
+    'there';
+  const firstName = displayName.split(' ').filter(Boolean)[0] || displayName;
+
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
       {/* Action / greeting strip */}
@@ -73,7 +80,7 @@ export default function DashboardPage() {
             <Sparkles className="h-3.5 w-3.5 text-brand-600" />
           </span>
           <span className="text-slate-700">
-            <span className="font-medium">Good morning, Darlene.</span>{' '}
+            <span className="font-medium">Good morning, {firstName}.</span>{' '}
             <span className="text-slate-600">
               You have{' '}
               <span className="num font-semibold text-brand-700">

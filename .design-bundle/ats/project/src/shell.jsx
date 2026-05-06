@@ -3,9 +3,55 @@
 const { Icons, UI } = window;
 const { Avatar, Button, IconButton, cn } = UI;
 
+function normalizeAdminProfile(source) {
+  if (!source) return null;
+  const name =
+  typeof source === "string" ? source :
+  source.name || source.fullName || source.full_name ||
+  source.user_metadata && source.user_metadata.name || "";
+  const email =
+  typeof source === "object" && (source.email || source.user_metadata && source.user_metadata.email) || "";
+  const cleanName = String(name || "").trim();
+  const cleanEmail = String(email || "").trim();
+  if (!cleanName && !cleanEmail) return null;
+  return {
+    name: cleanName || cleanEmail.split("@")[0] || "Admin",
+    email: cleanEmail
+  };
+}
+
+function getCurrentAdminProfile() {
+  const fallback = {
+    name: "Darlene Robertson",
+    email: "darlene@photonx.com"
+  };
+
+  try {
+    const direct =
+    normalizeAdminProfile(window.__ATS_CURRENT_ADMIN__) ||
+    normalizeAdminProfile(window.currentAdmin) ||
+    normalizeAdminProfile(window.currentUser) ||
+    normalizeAdminProfile(window.loggedInAdmin);
+    if (direct) return direct;
+
+    const settingsRaw = window.localStorage && window.localStorage.getItem("photonx:settings:v1");
+    if (settingsRaw) {
+      const settings = JSON.parse(settingsRaw);
+      const fromSettings = normalizeAdminProfile({
+        name: settings && settings.fullName,
+        email: settings && settings.email
+      });
+      if (fromSettings) return fromSettings;
+    }
+  } catch (error) {}
+
+  return fallback;
+}
+
 function Sidebar({ route, navigate }) {
   const isDash = route.name === "dashboard";
   const isJobs = route.name === "jobs" || route.name === "job-detail" || route.name === "create-job";
+  const admin = React.useMemo(() => getCurrentAdminProfile(), []);
 
   const NavItem = ({ active, icon, label, onClick }) => (
     <button
@@ -63,10 +109,10 @@ function Sidebar({ route, navigate }) {
       <div className="mx-5 border-t border-slate-100" />
       <div className="px-4 py-4">
         <button className="w-full flex items-center gap-3 p-1.5 rounded-lg hover:bg-slate-50 transition-colors">
-          <Avatar src="https://i.pravatar.cc/64?img=49" name="Darlene Robertson" size={36} />
+          <Avatar src="https://i.pravatar.cc/64?img=49" name={admin.name} size={36} />
           <div className="flex-1 text-left leading-tight min-w-0">
-            <div className="font-semibold text-slate-900 text-sm truncate">Darlene Robertson</div>
-            <div className="text-xs text-slate-500 truncate">darlene@photonx.com</div>
+            <div className="font-semibold text-slate-900 text-sm truncate">{admin.name}</div>
+            <div className="text-xs text-slate-500 truncate">{admin.email}</div>
           </div>
           <Icons.ChevronRight className="w-4 h-4 text-slate-400" />
         </button>
