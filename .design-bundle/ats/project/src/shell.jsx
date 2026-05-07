@@ -51,7 +51,7 @@ function getCurrentAdminProfile() {
 function Sidebar({ route, navigate }) {
   const isDash = route.name === "dashboard";
   const isJobs = route.name === "jobs" || route.name === "job-detail" || route.name === "create-job";
-  const admin = React.useMemo(() => getCurrentAdminProfile(), []);
+  const isSettings = route.name === "settings";
 
   const NavItem = ({ active, icon, label, onClick }) => (
     <button
@@ -103,19 +103,13 @@ function Sidebar({ route, navigate }) {
           label="Jobs"
           onClick={() => navigate({ name: "jobs" })}
         />
-      </div>
-
-      {/* User */}
-      <div className="mx-5 border-t border-slate-100" />
-      <div className="px-4 py-4">
-        <button className="w-full flex items-center gap-3 p-1.5 rounded-lg hover:bg-slate-50 transition-colors">
-          <Avatar src="https://i.pravatar.cc/64?img=49" name={admin.name} size={36} />
-          <div className="flex-1 text-left leading-tight min-w-0">
-            <div className="font-semibold text-slate-900 text-sm truncate">{admin.name}</div>
-            <div className="text-xs text-slate-500 truncate">{admin.email}</div>
-          </div>
-          <Icons.ChevronRight className="w-4 h-4 text-slate-400" />
-        </button>
+        <SectionLabel>ACCOUNT</SectionLabel>
+        <NavItem
+          active={isSettings}
+          icon={<Icons.Settings className="w-[18px] h-[18px]" />}
+          label="Account Settings"
+          onClick={() => navigate({ name: "settings" })}
+        />
       </div>
     </aside>
   );
@@ -144,11 +138,35 @@ function Breadcrumb({ items, onBack }) {
 }
 
 function Topbar({ route, navigate }) {
+  const admin = React.useMemo(() => getCurrentAdminProfile(), []);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const menuRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  const handleLogout = () => {
+    setMenuOpen(false);
+    if (typeof window.__ATS_LOGOUT__ === "function") {
+      window.__ATS_LOGOUT__();
+      return;
+    }
+    try { window.localStorage && window.localStorage.removeItem("photonx:settings:v1"); } catch (e) {}
+    window.location.reload();
+  };
+
   const items =
     route.name === "dashboard"   ? ["Dashboard"] :
     route.name === "jobs"        ? ["Jobs"] :
     route.name === "job-detail"  ? ["Jobs", route.jobTitle || "Job"] :
     route.name === "create-job"  ? ["Jobs", "Create new job"] :
+    route.name === "settings"    ? ["Account Settings"] :
     ["PhotonX"];
 
   const cta =
@@ -156,7 +174,7 @@ function Topbar({ route, navigate }) {
       <Button variant="primary" icon={<Icons.Eye className="w-4 h-4" />} onClick={() => navigate({ name: "public", jobId: route.jobId })}>
         Preview public page
       </Button>
-    ) : route.name === "create-job" ? null : (
+    ) : route.name === "create-job" || route.name === "settings" ? null : (
       <Button variant="primary" icon={<Icons.Plus className="w-4 h-4" />} onClick={() => navigate({ name: "create-job" })}>
         Create New Job
       </Button>
@@ -165,6 +183,7 @@ function Topbar({ route, navigate }) {
   const onBack = () => {
     if (route.name === "job-detail") navigate({ name: "jobs" });
     else if (route.name === "create-job") navigate({ name: "jobs" });
+    else if (route.name === "settings") navigate({ name: "dashboard" });
     else if (route.name === "dashboard") navigate({ name: "dashboard" });
     else navigate({ name: "dashboard" });
   };
@@ -178,15 +197,31 @@ function Topbar({ route, navigate }) {
           <Icons.Bell className="w-4 h-4" />
           <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold grid place-items-center">2</span>
         </button>
-        <div className="flex items-center pl-2">
-          <div className="flex -space-x-2">
-            <img src="https://i.pravatar.cc/64?img=11" className="w-8 h-8 rounded-full ring-2 ring-white object-cover" />
-            <img src="https://i.pravatar.cc/64?img=22" className="w-8 h-8 rounded-full ring-2 ring-white object-cover" />
-            <img src="https://i.pravatar.cc/64?img=34" className="w-8 h-8 rounded-full ring-2 ring-white object-cover" />
-          </div>
-          <span className="ml-1.5 inline-flex items-center h-7 px-2 rounded-full bg-slate-100 text-[12px] font-medium text-slate-600 border border-white">+10</span>
-        </div>
         {cta}
+        <div className="relative ml-2" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors border border-slate-200"
+          >
+            <Avatar src="https://i.pravatar.cc/64?img=49" name={admin.name} size={32} />
+            <div className="text-left leading-tight min-w-0 max-w-[160px]">
+              <div className="font-semibold text-slate-900 text-[13px] truncate">{admin.name}</div>
+              <div className="text-[11px] text-slate-500 truncate">{admin.email}</div>
+            </div>
+            <Icons.ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform", menuOpen && "rotate-180")} />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-50">
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 text-left"
+              >
+                <Icons.LogOut className="w-4 h-4 text-slate-500" />
+                <span>Logout</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

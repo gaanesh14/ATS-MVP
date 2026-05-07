@@ -13,7 +13,7 @@ export default async function DocsIndexPage() {
   return (
     <main className="min-h-screen bg-page px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl">
-        <div className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 via-white to-brand-50/40 p-6 shadow-card sm:p-8">
+        <div className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 via-white to-brand-50/40 p-6 shadow-card sm:p-8 dark:border-brand-500/20 dark:from-brand-500/10 dark:via-slate-900 dark:to-brand-500/5">
           <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-brand-700">
             Docs
           </p>

@@ -22,7 +22,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <UpcomingInterviewsProvider>
-      <div className="flex min-h-screen bg-page lg:h-screen lg:overflow-hidden">
+      <div className="flex min-h-screen bg-page lg:h-screen lg:overflow-hidden dark:bg-slate-950">
         <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
 
         {/* Backdrop — only on mobile when the drawer is open */}

@@ -1386,7 +1386,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             return (
               <>
                 {/* Header — gradient surface, larger candidate identity */}
-                <DialogHeader className="space-y-0 border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-6 pb-5 pt-6">
+                <DialogHeader className="space-y-0 border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-6 pb-5 pt-6 dark:from-slate-800 dark:to-slate-900">
                   <div className="flex items-start justify-between gap-4 pr-8">
                     <div className="flex min-w-0 items-start gap-4">
                       <div className="grid h-14 w-14 flex-shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600 text-base font-semibold text-white shadow-sm">

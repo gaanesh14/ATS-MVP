@@ -19,6 +19,7 @@ function App() {
   else if (route.name === "jobs") view = <window.JobsView navigate={navigate} />;
   else if (route.name === "job-detail") view = <window.JobDetail route={route} navigate={navigate} />;
   else if (route.name === "create-job") view = <window.CreateJob navigate={navigate} />;
+  else if (route.name === "settings") view = <window.Settings navigate={navigate} />;
 
   return (
     <div className="min-h-screen p-5">

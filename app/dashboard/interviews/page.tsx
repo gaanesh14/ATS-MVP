@@ -428,7 +428,7 @@ function InterviewRow({
 
       {/* Candidate identity */}
       <div className="flex min-w-[200px] flex-1 items-center gap-3">
-        <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-gradient-to-br from-slate-100 to-slate-200 text-[12px] font-semibold text-slate-700">
+        <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-gradient-to-br from-slate-100 to-slate-200 text-[12px] font-semibold text-slate-700 dark:from-slate-800 dark:to-slate-700 dark:text-slate-200">
           {initials}
         </div>
         <div className="min-w-0">

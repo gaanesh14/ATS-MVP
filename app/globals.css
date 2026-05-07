@@ -70,3 +70,138 @@
     scrollbar-width: none;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Dark theme sweep — automatic remapping of common Tailwind utility classes
+   when .dark is set on <html>. Lets every page pick up dark mode without
+   each component having to declare `dark:` variants explicitly. Pages can
+   still add their own `dark:` overrides for special cases.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Surfaces */
+.dark .bg-white { background-color: rgb(15 23 42); }
+.dark .bg-white\/80 { background-color: rgb(15 23 42 / 0.8); }
+.dark .bg-white\/90 { background-color: rgb(15 23 42 / 0.9); }
+.dark .bg-slate-50 { background-color: rgb(30 41 59); }
+.dark .bg-slate-50\/40 { background-color: rgb(30 41 59 / 0.4); }
+.dark .bg-slate-50\/50 { background-color: rgb(30 41 59 / 0.5); }
+.dark .bg-slate-50\/60 { background-color: rgb(30 41 59 / 0.6); }
+.dark .bg-slate-100 { background-color: rgb(30 41 59); }
+.dark .bg-slate-200 { background-color: rgb(51 65 85); }
+
+/* Borders */
+.dark .border-slate-100 { border-color: rgb(30 41 59); }
+.dark .border-slate-200 { border-color: rgb(51 65 85); }
+.dark .border-slate-300 { border-color: rgb(71 85 105); }
+
+/* Divide colors used in tables/lists */
+.dark .divide-slate-50 > :not([hidden]) ~ :not([hidden]) { border-color: rgb(30 41 59); }
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: rgb(30 41 59); }
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: rgb(51 65 85); }
+
+/* Text — slate scale flips so high becomes light */
+.dark .text-slate-900 { color: rgb(241 245 249); }
+.dark .text-slate-800 { color: rgb(226 232 240); }
+.dark .text-slate-700 { color: rgb(226 232 240); }
+.dark .text-slate-600 { color: rgb(203 213 225); }
+.dark .text-slate-500 { color: rgb(148 163 184); }
+.dark .text-slate-400 { color: rgb(100 116 139); }
+.dark .text-slate-300 { color: rgb(71 85 105); }
+
+/* Hover backgrounds */
+.dark .hover\:bg-slate-50:hover { background-color: rgb(30 41 59); }
+.dark .hover\:bg-slate-50\/60:hover { background-color: rgb(30 41 59 / 0.6); }
+.dark .hover\:bg-slate-100:hover { background-color: rgb(51 65 85); }
+.dark .hover\:bg-white:hover { background-color: rgb(30 41 59); }
+
+/* Hover text */
+.dark .hover\:text-slate-600:hover { color: rgb(203 213 225); }
+.dark .hover\:text-slate-700:hover { color: rgb(226 232 240); }
+.dark .hover\:text-slate-800:hover { color: rgb(241 245 249); }
+.dark .hover\:text-slate-900:hover { color: rgb(241 245 249); }
+
+/* Hover borders */
+.dark .hover\:border-slate-200:hover { border-color: rgb(51 65 85); }
+.dark .hover\:border-slate-300:hover { border-color: rgb(71 85 105); }
+
+/* Pastel-50 backgrounds → translucent tints (used in badges/pills/cards) */
+.dark .bg-emerald-50 { background-color: rgb(16 185 129 / 0.15); }
+.dark .bg-sky-50 { background-color: rgb(14 165 233 / 0.15); }
+.dark .bg-amber-50 { background-color: rgb(245 158 11 / 0.15); }
+.dark .bg-violet-50 { background-color: rgb(139 92 246 / 0.15); }
+.dark .bg-rose-50 { background-color: rgb(244 63 94 / 0.15); }
+.dark .bg-teal-50 { background-color: rgb(20 184 166 / 0.15); }
+.dark .bg-indigo-50 { background-color: rgb(99 102 241 / 0.15); }
+.dark .bg-cyan-50 { background-color: rgb(6 182 212 / 0.15); }
+.dark .bg-orange-50 { background-color: rgb(249 115 22 / 0.15); }
+.dark .bg-fuchsia-50 { background-color: rgb(217 70 239 / 0.15); }
+.dark .bg-brand-50 { background-color: rgb(15 123 108 / 0.18); }
+
+/* Hover variants of pastel-50 */
+.dark .hover\:bg-emerald-50:hover { background-color: rgb(16 185 129 / 0.18); }
+.dark .hover\:bg-rose-50:hover { background-color: rgb(244 63 94 / 0.18); }
+.dark .hover\:bg-brand-50:hover { background-color: rgb(15 123 108 / 0.22); }
+
+/* Pastel-700 text → lighter so contrast is readable */
+.dark .text-emerald-700 { color: rgb(110 231 183); }
+.dark .text-sky-700 { color: rgb(125 211 252); }
+.dark .text-amber-700 { color: rgb(252 211 77); }
+.dark .text-violet-700 { color: rgb(196 181 253); }
+.dark .text-rose-700 { color: rgb(253 164 175); }
+.dark .text-teal-700 { color: rgb(94 234 212); }
+.dark .text-indigo-700 { color: rgb(165 180 252); }
+.dark .text-cyan-700 { color: rgb(103 232 249); }
+.dark .text-orange-700 { color: rgb(253 186 116); }
+.dark .text-fuchsia-700 { color: rgb(240 171 252); }
+.dark .text-brand-700 { color: rgb(111 179 163); }
+
+/* Pastel-600 text */
+.dark .text-emerald-600 { color: rgb(52 211 153); }
+.dark .text-sky-600 { color: rgb(56 189 248); }
+.dark .text-amber-600 { color: rgb(251 191 36); }
+.dark .text-violet-600 { color: rgb(167 139 250); }
+.dark .text-rose-600 { color: rgb(251 113 133); }
+.dark .text-teal-600 { color: rgb(45 212 191); }
+.dark .text-brand-600 { color: rgb(63 154 133); }
+
+/* Ring colors */
+.dark .ring-slate-100 { --tw-ring-color: rgb(30 41 59); }
+.dark .ring-slate-200 { --tw-ring-color: rgb(51 65 85); }
+.dark .ring-emerald-200 { --tw-ring-color: rgb(16 185 129 / 0.3); }
+.dark .ring-sky-200 { --tw-ring-color: rgb(14 165 233 / 0.3); }
+.dark .ring-amber-200 { --tw-ring-color: rgb(245 158 11 / 0.3); }
+.dark .ring-violet-200 { --tw-ring-color: rgb(139 92 246 / 0.3); }
+.dark .ring-rose-200 { --tw-ring-color: rgb(244 63 94 / 0.3); }
+.dark .ring-brand-200 { --tw-ring-color: rgb(15 123 108 / 0.3); }
+.dark .ring-white { --tw-ring-color: rgb(15 23 42); }
+
+/* Form controls — inputs/selects/textareas commonly use border-slate-200 */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: rgb(15 23 42);
+  color: rgb(241 245 249);
+  border-color: rgb(51 65 85);
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: rgb(100 116 139);
+}
+
+/* Placeholder utility class */
+.dark .placeholder\:text-slate-400::placeholder { color: rgb(100 116 139); }
+.dark .placeholder\:text-slate-500::placeholder { color: rgb(148 163 184); }
+
+/* Backdrop overlays — keep slate-900/50 readable on top of dark surfaces */
+.dark .bg-slate-900\/50 { background-color: rgb(0 0 0 / 0.6); }
+
+/* Project-specific custom utilities */
+.dark .bg-page { background-color: rgb(2 6 23); }                 /* slate-950 */
+.dark .text-ink { color: rgb(241 245 249); }                       /* slate-100 */
+.dark .text-ink-muted { color: rgb(148 163 184); }                 /* slate-400 */
+.dark .text-ink-soft { color: rgb(100 116 139); }                  /* slate-500 */
+
+/* Shadows — keep visible on dark surfaces by darkening + slight ring */
+.dark .shadow-card { box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 1px 3px rgb(0 0 0 / 0.3); }
+.dark .shadow-soft { box-shadow: 0 4px 24px rgb(0 0 0 / 0.4); }
+.dark .shadow-lift { box-shadow: 0 10px 30px rgb(0 0 0 / 0.5); }

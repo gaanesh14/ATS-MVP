@@ -125,9 +125,9 @@ export default function HelpPage() {
   return (
     <div className="mx-auto max-w-[1100px] px-4 py-6 sm:px-6 lg:px-8">
       {/* Hero */}
-      <div className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 via-white to-brand-50/40 p-6 sm:p-8">
+      <div className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 via-white to-brand-50/40 p-6 sm:p-8 dark:border-brand-500/20 dark:from-brand-500/10 dark:via-slate-900 dark:to-brand-500/5">
         <div className="flex items-start gap-4">
-          <div className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl bg-white text-brand-600 shadow-sm">
+          <div className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl bg-white text-brand-600 shadow-sm dark:bg-slate-800 dark:text-brand-300">
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
