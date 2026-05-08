@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { requireRoleFromRequest, AuthError } from '@/lib/auth-server';
 import { sendInterviewInvite } from '@/lib/email/interview-invite';
 import type { Interview } from '@/lib/supabase';
 
@@ -21,6 +21,15 @@ export async function POST(
 ) {
   const { id } = params;
 
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'interviews.manage');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();
@@ -32,11 +41,12 @@ export async function POST(
     (body.action as 'created' | 'rescheduled' | 'reminder_1h' | undefined) ??
     'created';
 
-  const { data: row, error } = await supabase
+  const baseQ = admin
     .from('interviews')
     .select('*, applications(jobs(title))')
-    .eq('id', id)
-    .maybeSingle();
+    .eq('id', id);
+  const scopedQ = orgId ? baseQ.eq('org_id', orgId) : baseQ;
+  const { data: row, error } = await scopedQ.maybeSingle();
   if (error || !row) {
     return NextResponse.json(
       { error: error?.message ?? 'Interview not found' },

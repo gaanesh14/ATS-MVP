@@ -37,6 +37,7 @@ import { AtsRing } from '@/components/ui/ats-ring';
 import { KanbanBoard } from '@/components/ui/kanban-board';
 import { useAuth } from '@/components/shell/auth-provider';
 import { can } from '@/lib/rbac';
+import { authedFetch } from '@/lib/authed-fetch';
 import {
   getStagesForJob,
   CUSTOM_STAGE_COLORS,
@@ -352,7 +353,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     // to resync.
     const results = await Promise.all(
       ids.map((id) =>
-        fetch(`/api/applications/${id}/stage`, {
+        authedFetch(`/api/applications/${id}/stage`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ stage: stageId }),
@@ -382,9 +383,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     fetchAll();
   }, [jobId]);
 
+  // Short share URL: `/j/<8-char-uuid-prefix>` resolves to the apply
+  // page via app/j/[code]/page.tsx. Saves ~50 chars vs the old
+  // `/careers/apply?jobId=<full-uuid>` form.
   const publicLink = useMemo(() => {
     if (typeof window === 'undefined') return '';
-    return `${window.location.origin}/careers/apply?jobId=${jobId}`;
+    return `${window.location.origin}/j/${jobId.slice(0, 8)}`;
   }, [jobId]);
 
   function handleCopy() {
@@ -542,7 +546,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   async function deleteJob() {
     setDeleting(true);
     setDeleteError(null);
-    const res = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+    const res = await authedFetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       setDeleteError(err.error ?? `Delete failed: HTTP ${res.status}`);
@@ -563,7 +567,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       setSelectedApp({ ...selectedApp, stage: newStage });
     }
 
-    const res = await fetch(`/api/applications/${appId}/stage`, {
+    const res = await authedFetch(`/api/applications/${appId}/stage`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stage: newStage }),
@@ -612,7 +616,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     setSavingStage(true);
     setStageError(null);
     const next: JobStage[] = [...existing, { id, label, color: newStageColor }];
-    const res = await fetch(`/api/jobs/${jobId}`, {
+    const res = await authedFetch(`/api/jobs/${jobId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ extra_stages: next }),
@@ -639,7 +643,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
     const next = (job.extra_stages ?? []).filter((s) => s.id !== stageId);
     setStageError(null);
-    const res = await fetch(`/api/jobs/${jobId}`, {
+    const res = await authedFetch(`/api/jobs/${jobId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ extra_stages: next }),
@@ -655,7 +659,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   async function reparse(appId: string) {
     setReparsing(true);
     try {
-      await fetch(`/api/applications/${appId}/parse`, { method: 'POST' });
+      await authedFetch(`/api/applications/${appId}/parse`, { method: 'POST' });
       await fetchAll();
       const updated = apps.find((a) => a.id === appId);
       if (updated) setSelectedApp(updated);
@@ -1640,52 +1644,70 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       )}
                     </div>
 
-                    {/* Skills matched / missing */}
+                    {/* Skills matched / missing — both subsections always
+                        render (with empty states) so reviewers can see at a
+                        glance which required skills the candidate is missing,
+                        even when the count is 0. */}
                     {!isFailed &&
                       ((selectedApp.matched_skills?.length ?? 0) +
                         (selectedApp.missing_skills?.length ?? 0) >
                         0) && (
                         <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                            Skills
-                          </p>
+                          <div className="flex items-baseline justify-between">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              Required skills
+                            </p>
+                            <p className="text-[11px] font-medium text-slate-500">
+                              {selectedApp.matched_skills?.length ?? 0} matched
+                              <span className="px-1 text-slate-300">·</span>
+                              {selectedApp.missing_skills?.length ?? 0} missing
+                            </p>
+                          </div>
                           <div className="mt-2 space-y-2.5">
-                            {selectedApp.matched_skills &&
-                              selectedApp.matched_skills.length > 0 && (
-                                <div>
-                                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
-                                    Matched ({selectedApp.matched_skills.length})
-                                  </p>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {selectedApp.matched_skills.map((s) => (
-                                      <span
-                                        key={s}
-                                        className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200"
-                                      >
-                                        {s}
-                                      </span>
-                                    ))}
-                                  </div>
+                            <div>
+                              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                                Matched ({selectedApp.matched_skills?.length ?? 0})
+                              </p>
+                              {selectedApp.matched_skills &&
+                              selectedApp.matched_skills.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {selectedApp.matched_skills.map((s) => (
+                                    <span
+                                      key={s}
+                                      className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200"
+                                    >
+                                      {s}
+                                    </span>
+                                  ))}
                                 </div>
+                              ) : (
+                                <p className="text-[11.5px] italic text-slate-400">
+                                  No required skills matched.
+                                </p>
                               )}
-                            {selectedApp.missing_skills &&
-                              selectedApp.missing_skills.length > 0 && (
-                                <div>
-                                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-rose-700">
-                                    Missing ({selectedApp.missing_skills.length})
-                                  </p>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {selectedApp.missing_skills.map((s) => (
-                                      <span
-                                        key={s}
-                                        className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-700 ring-1 ring-rose-200"
-                                      >
-                                        {s}
-                                      </span>
-                                    ))}
-                                  </div>
+                            </div>
+                            <div>
+                              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-rose-700">
+                                Missing ({selectedApp.missing_skills?.length ?? 0})
+                              </p>
+                              {selectedApp.missing_skills &&
+                              selectedApp.missing_skills.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {selectedApp.missing_skills.map((s) => (
+                                    <span
+                                      key={s}
+                                      className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-700 ring-1 ring-rose-200"
+                                    >
+                                      {s}
+                                    </span>
+                                  ))}
                                 </div>
+                              ) : (
+                                <p className="text-[11.5px] italic text-emerald-700">
+                                  All required skills matched.
+                                </p>
                               )}
+                            </div>
                           </div>
                         </div>
                       )}

@@ -1,9 +1,20 @@
 import { NextResponse } from 'next/server';
 import pdf from 'pdf-parse/lib/pdf-parse.js';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+
+// This route is called by anonymous candidates immediately after a successful
+// /careers/apply submission (fire-and-forget from the client). We can't gate
+// it with requireRole(); instead, after the multi-tenancy migration the new
+// RLS policies block anon UPDATEs on `applications`, so we must use the
+// service-role admin client here. The application's `org_id` was stamped on
+// INSERT by the stamp_org_from_job() trigger, so no extra scoping is needed.
+//
+// Threat model: an attacker who knows an application id can repeatedly
+// trigger re-parses, costing OpenAI credits. Mitigation is rate-limiting
+// (deferred to the next PR) plus a worker-queue migration that can dedupe.
 
 // ---------------------------------------------------------------------------
 // OpenAI helpers — direct fetch, no SDK dependency.
@@ -673,13 +684,14 @@ export async function POST(
   const { id } = params;
   console.log(`[parse] start id=${id}`);
 
-  await supabase.from('applications').update({ parse_status: 'processing' }).eq('id', id);
+  const admin = getSupabaseAdmin();
+  await admin.from('applications').update({ parse_status: 'processing' }).eq('id', id);
 
   try {
     // -- Fetch application + parent job (for the JD).
     //    Pull existing parsed_data too so we can preserve any user-supplied
     //    fields (location, experience_years) the apply form seeded.
-    const { data: app, error: fetchErr } = await supabase
+    const { data: app, error: fetchErr } = await admin
       .from('applications')
       .select('id, resume_url, job_id, parsed_data')
       .eq('id', id)
@@ -700,7 +712,7 @@ export async function POST(
     let jobTitle = '';
     let jdMinExperience: number | null = null;
     if (app.job_id) {
-      const { data: job } = await supabase
+      const { data: job } = await admin
         .from('jobs')
         .select('title, description, min_experience')
         .eq('id', app.job_id)
@@ -736,7 +748,7 @@ export async function POST(
               location: userSupplied.location ?? null,
             }
           : null;
-      await supabase.from('applications').update({
+      await admin.from('applications').update({
         resume_text: text.slice(0, 50000),
         parse_status: 'failed',
         ats_score: null,
@@ -882,7 +894,7 @@ export async function POST(
     };
 
     const breakdown = { ...det.breakdown, llm_validated: finalScore };
-    const { error: updErr } = await supabase
+    const { error: updErr } = await admin
       .from('applications')
       .update({
         resume_text: text.slice(0, 50000),
@@ -917,13 +929,13 @@ export async function POST(
 
     // Preserve self-reported parsed_data on fatal failure so the candidate's
     // claimed location/experience aren't lost.
-    const { data: existing } = await supabase
+    const { data: existing } = await admin
       .from('applications')
       .select('parsed_data')
       .eq('id', id)
       .single();
 
-    await supabase
+    await admin
       .from('applications')
       .update({
         parse_status: 'failed',

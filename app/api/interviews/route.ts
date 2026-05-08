@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { requireRoleFromRequest, AuthError } from '@/lib/auth-server';
 import {
   validateSchedule,
   generateJitsiLink,
@@ -31,6 +31,15 @@ const VALID_PROVIDERS = new Set<InterviewMeetingProvider>([
 //
 // Default order: upcoming first (asc by scheduled_at), past last.
 export async function GET(req: Request) {
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'interviews.schedule');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   const url = new URL(req.url);
   const applicationId = url.searchParams.get('application_id');
   const jobId = url.searchParams.get('job_id');
@@ -39,7 +48,8 @@ export async function GET(req: Request) {
   const to = url.searchParams.get('to');
   const upcoming = url.searchParams.get('upcoming') === '1';
 
-  let q = supabase.from('interviews').select('*').order('scheduled_at', { ascending: true });
+  let q = admin.from('interviews').select('*').order('scheduled_at', { ascending: true });
+  if (orgId) q = q.eq('org_id', orgId);
   if (applicationId) q = q.eq('application_id', applicationId);
   if (jobId) q = q.eq('job_id', jobId);
   if (status) q = q.eq('status', status);
@@ -67,6 +77,16 @@ export async function GET(req: Request) {
 // but non-fatal: the row exists and the recruiter can retry.
 export async function POST(req: Request) {
   console.log('[interview] ─────────── POST /api/interviews ───────────');
+
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'interviews.schedule');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -129,11 +149,14 @@ export async function POST(req: Request) {
   console.log('[interview] ✓ validation passed');
 
   // Pull the candidate + job in one round-trip for the email later.
-  const { data: app, error: appErr } = await supabase
+  // Scoped to caller's org so a recruiter from one tenant can't schedule
+  // against an application in a different tenant.
+  const baseAppQ = admin
     .from('applications')
     .select('id, full_name, email, job_id, jobs(id, title)')
-    .eq('id', applicationId)
-    .maybeSingle();
+    .eq('id', applicationId);
+  const scopedAppQ = orgId ? baseAppQ.eq('org_id', orgId) : baseAppQ;
+  const { data: app, error: appErr } = await scopedAppQ.maybeSingle();
   if (appErr || !app) {
     console.log('[interview] ✗ candidate fetch failed:', appErr?.message ?? 'not found');
     return NextResponse.json(
@@ -153,7 +176,7 @@ export async function POST(req: Request) {
   });
 
   // Conflict check — only across this candidate's other scheduled interviews.
-  const { data: existing } = await supabase
+  const { data: existing } = await admin
     .from('interviews')
     .select('*')
     .eq('application_id', applicationId)
@@ -224,7 +247,7 @@ export async function POST(req: Request) {
   }
   // google_meet & none → null link until OAuth lands.
 
-  const insert = {
+  const insert: Record<string, unknown> = {
     application_id: applicationId,
     job_id: jobId,
     scheduled_by: scheduledBy,
@@ -239,8 +262,11 @@ export async function POST(req: Request) {
     participants,
     notes,
   };
+  // Stamp org_id on insert when running post-migration. Pre-migration the
+  // column doesn't exist; including it would raise.
+  if (orgId) insert.org_id = orgId;
 
-  const { data: row, error: insErr } = await supabase
+  const { data: row, error: insErr } = await admin
     .from('interviews')
     .insert(insert)
     .select('*')

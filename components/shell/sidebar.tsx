@@ -30,10 +30,11 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        // Default (desktop): static, always visible.
-        'flex w-[244px] flex-shrink-0 flex-col border-r border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900',
+        // Default (desktop): always visible. `lg:sticky lg:top-0 lg:h-screen`
+        // pins the sidebar to the viewport while the page (window) scrolls.
+        'flex w-[244px] flex-shrink-0 flex-col border-r border-slate-100 bg-white lg:sticky lg:top-0 lg:h-screen dark:border-slate-800 dark:bg-slate-900',
         // Mobile: fixed drawer that slides in from the left over the page.
-        'fixed inset-y-0 left-0 z-40 -translate-x-full transition-transform duration-200 ease-out lg:static lg:translate-x-0',
+        'fixed inset-y-0 left-0 z-40 -translate-x-full transition-transform duration-200 ease-out lg:translate-x-0',
         mobileOpen && 'translate-x-0 shadow-lift'
       )}
       aria-hidden={!mobileOpen ? undefined : false}

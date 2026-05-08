@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/shell/auth-provider';
 import { can } from '@/lib/rbac';
+import { authedFetch } from '@/lib/authed-fetch';
 import { cn } from '@/lib/utils';
 
 // Profile + notification preferences persist to localStorage. The display
@@ -103,7 +104,7 @@ export default function SettingsPage() {
       (settings.fullName.trim() !== member.name ||
         (settings.jobTitle.trim() || null) !== (member.title ?? null))
     ) {
-      const res = await fetch(`/api/team/${member.id}`, {
+      const res = await authedFetch(`/api/team/${member.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

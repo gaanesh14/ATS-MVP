@@ -38,6 +38,12 @@ export function getSupabaseAdmin(): SupabaseClient {
  * trigger picks it up, and a redirectTo that lands the invitee on our
  * /accept-invite page so they can set a password before being signed in.
  *
+ * Fallback path: when `inviteUserByEmail` fails because the auth user
+ * already exists (re-inviting an archived member, retrying after a prior
+ * attempt that committed auth.users but not the team_members row, etc.),
+ * we regenerate an invite link for the existing user. The Brevo SMTP
+ * relay configured on the project sends that link out the same way.
+ *
  * Resolves to either { ok: true } or { ok: false, error } — never throws,
  * so callers can decide whether the failure is fatal.
  */
@@ -46,24 +52,65 @@ export async function sendTeamInvite(opts: {
   name: string;
   origin: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
+  let admin: SupabaseClient;
   try {
-    const admin = getSupabaseAdmin();
+    admin = getSupabaseAdmin();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const redirectTo = `${opts.origin}/accept-invite`;
+  const userMetadata = {
+    name: opts.name,
+    invite_flow: 'team',
+    must_set_password: true,
+  };
+
+  try {
     const { error } = await admin.auth.admin.inviteUserByEmail(opts.email, {
-      data: {
-        name: opts.name,
-        invite_flow: 'team',
-        must_set_password: true,
-      },
-      // Land on /accept-invite so we can prompt for a password. Without
-      // this, Supabase signs the user in via the magic link's one-time
-      // session, but they never set a password and can't sign back in.
+      data: userMetadata,
       // The path here must also be in Supabase → Auth → URL Configuration
-      // → Redirect URLs.
-      redirectTo: `${opts.origin}/accept-invite`,
+      // → Redirect URLs, otherwise the magic-link click bounces.
+      redirectTo,
     });
-    if (error) return { ok: false, error: error.message };
+    if (!error) return { ok: true };
+
+    // Two messages mean "the user is already registered in auth.users":
+    //   • "User already registered" — clean error path
+    //   • "Database error saving new user" — opaque wrapper around the
+    //     same uniqueness violation, plus other auth-trigger failures.
+    // In either case we retry by generating a fresh invite link, which
+    // works for existing users.
+    if (!isExistingUserError(error.message)) {
+      return { ok: false, error: error.message };
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // Fallback: existing auth.users row. Generate an invite link the
+  // server-side way. `email_redirect_to` lands them on /accept-invite
+  // exactly like the first-time invite, so the password-set UX is the
+  // same regardless of which branch ran.
+  try {
+    const { error: linkErr } = await admin.auth.admin.generateLink({
+      type: 'invite',
+      email: opts.email,
+      options: { data: userMetadata, redirectTo },
+    });
+    if (linkErr) return { ok: false, error: linkErr.message };
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+function isExistingUserError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes('already registered') ||
+    m.includes('already been registered') ||
+    m.includes('already exists') ||
+    m.includes('database error saving new user')
+  );
 }

@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/components/shell/auth-provider';
 import { can } from '@/lib/rbac';
+import { authedFetch } from '@/lib/authed-fetch';
 import {
   Dialog,
   DialogContent,
@@ -73,7 +74,7 @@ export default function JobsPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     setDeleteError(null);
-    const res = await fetch(`/api/jobs/${deleteTarget.id}`, { method: 'DELETE' });
+    const res = await authedFetch(`/api/jobs/${deleteTarget.id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       setDeleteError(err.error ?? `Delete failed: HTTP ${res.status}`);
@@ -404,7 +405,7 @@ function JobCard({
   async function setStatus(next: 'open' | 'closed') {
     setMenuOpen(false);
     setUpdating(true);
-    const res = await fetch(`/api/jobs/${job.id}`, {
+    const res = await authedFetch(`/api/jobs/${job.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: next }),

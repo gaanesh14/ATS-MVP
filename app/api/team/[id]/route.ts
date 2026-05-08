@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
 import { sendTeamInvite } from '@/lib/supabase-admin';
+import { requireRoleFromRequest, AuthError } from '@/lib/auth-server';
 
 export const runtime = 'nodejs';
 
@@ -20,6 +20,16 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   const { id } = params;
+
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'team.edit');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -55,11 +65,12 @@ export async function PATCH(
     }
     // Auto-set joined_at the first time someone goes active.
     if (s === 'active') {
-      const { data: existing } = await supabase
+      const baseExisting = admin
         .from('team_members')
         .select('joined_at')
-        .eq('id', id)
-        .maybeSingle();
+        .eq('id', id);
+      const scopedExisting = orgId ? baseExisting.eq('org_id', orgId) : baseExisting;
+      const { data: existing } = await scopedExisting.maybeSingle();
       if (existing && !existing.joined_at) {
         (update as Record<string, unknown>).joined_at = new Date().toISOString();
       }
@@ -71,24 +82,29 @@ export async function PATCH(
     update.name = n;
   }
 
-  // Don't let the last super_admin be demoted or archived — that would lock
-  // the workspace out of team management entirely.
+  // Don't let the last super_admin in the org be demoted or archived — that
+  // would lock the workspace out of team management entirely. The check is
+  // scoped to the org so a single platform-wide super_admin can't lock out
+  // a different tenant's last super_admin.
   if ('role' in update || 'status' in update) {
-    const { data: target } = await supabase
+    const baseTarget = admin
       .from('team_members')
       .select('role, status')
-      .eq('id', id)
-      .maybeSingle();
+      .eq('id', id);
+    const scopedTarget = orgId ? baseTarget.eq('org_id', orgId) : baseTarget;
+    const { data: target } = await scopedTarget.maybeSingle();
 
     if (target?.role === 'super_admin' && target.status === 'active') {
       const demoting = 'role' in update && update.role !== 'super_admin';
       const removing = 'status' in update && update.status !== 'active';
       if (demoting || removing) {
-        const { count } = await supabase
+        const baseCount = admin
           .from('team_members')
           .select('id', { count: 'exact', head: true })
           .eq('role', 'super_admin')
           .eq('status', 'active');
+        const scopedCount = orgId ? baseCount.eq('org_id', orgId) : baseCount;
+        const { count } = await scopedCount;
         if ((count ?? 0) <= 1) {
           return NextResponse.json(
             {
@@ -102,12 +118,9 @@ export async function PATCH(
     }
   }
 
-  const { data, error } = await supabase
-    .from('team_members')
-    .update(update)
-    .eq('id', id)
-    .select('*')
-    .single();
+  const baseUpdate = admin.from('team_members').update(update).eq('id', id);
+  const scopedUpdate = orgId ? baseUpdate.eq('org_id', orgId) : baseUpdate;
+  const { data, error } = await scopedUpdate.select('*').single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -141,22 +154,35 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   const { id } = params;
+
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'team.archive');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   const url = new URL(req.url);
   const hard = url.searchParams.get('hard') === '1';
 
-  // Same last-super-admin guard as PATCH.
-  const { data: target } = await supabase
+  // Same last-super-admin guard as PATCH, scoped to the caller's org.
+  const baseTarget = admin
     .from('team_members')
     .select('role, status')
-    .eq('id', id)
-    .maybeSingle();
+    .eq('id', id);
+  const scopedTarget = orgId ? baseTarget.eq('org_id', orgId) : baseTarget;
+  const { data: target } = await scopedTarget.maybeSingle();
 
   if (target?.role === 'super_admin' && target.status === 'active') {
-    const { count } = await supabase
+    const baseCount = admin
       .from('team_members')
       .select('id', { count: 'exact', head: true })
       .eq('role', 'super_admin')
       .eq('status', 'active');
+    const scopedCount = orgId ? baseCount.eq('org_id', orgId) : baseCount;
+    const { count } = await scopedCount;
     if ((count ?? 0) <= 1) {
       return NextResponse.json(
         {
@@ -169,17 +195,19 @@ export async function DELETE(
   }
 
   if (hard) {
-    const { error } = await supabase.from('team_members').delete().eq('id', id);
+    const baseDelete = admin.from('team_members').delete().eq('id', id);
+    const scopedDelete = orgId ? baseDelete.eq('org_id', orgId) : baseDelete;
+    const { error } = await scopedDelete;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, hard: true });
   }
 
-  const { data, error } = await supabase
+  const baseArchive = admin
     .from('team_members')
     .update({ status: 'archived' })
-    .eq('id', id)
-    .select('*')
-    .single();
+    .eq('id', id);
+  const scopedArchive = orgId ? baseArchive.eq('org_id', orgId) : baseArchive;
+  const { data, error } = await scopedArchive.select('*').single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, member: data });

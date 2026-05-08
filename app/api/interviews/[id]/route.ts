@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { requireRoleFromRequest, AuthError } from '@/lib/auth-server';
 import {
   validateSchedule,
   findConflicts,
@@ -44,6 +44,16 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   const { id } = params;
+
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'interviews.manage');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -51,11 +61,12 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { data: existing, error: exErr } = await supabase
+  const baseExQ = admin
     .from('interviews')
     .select('*, applications(jobs(title))')
-    .eq('id', id)
-    .maybeSingle();
+    .eq('id', id);
+  const scopedExQ = orgId ? baseExQ.eq('org_id', orgId) : baseExQ;
+  const { data: existing, error: exErr } = await scopedExQ.maybeSingle();
   if (exErr || !existing) {
     return NextResponse.json(
       { error: exErr?.message ?? 'Interview not found' },
@@ -148,7 +159,7 @@ export async function PATCH(
       );
     }
 
-    const { data: others } = await supabase
+    const { data: others } = await admin
       .from('interviews')
       .select('*')
       .eq('application_id', current.application_id)
@@ -184,12 +195,9 @@ export async function PATCH(
     update.reminder_1h_sent_at = null;
   }
 
-  const { data: row, error: updErr } = await supabase
-    .from('interviews')
-    .update(update)
-    .eq('id', id)
-    .select('*')
-    .single();
+  const baseUpdQ = admin.from('interviews').update(update).eq('id', id);
+  const scopedUpdQ = orgId ? baseUpdQ.eq('org_id', orgId) : baseUpdQ;
+  const { data: row, error: updErr } = await scopedUpdQ.select('*').single();
 
   if (updErr) {
     return NextResponse.json({ error: updErr.message }, { status: 500 });
@@ -233,20 +241,33 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   const { id } = params;
+
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'interviews.manage');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   const url = new URL(req.url);
   const hard = url.searchParams.get('hard') === '1';
 
   if (hard) {
-    const { error } = await supabase.from('interviews').delete().eq('id', id);
+    const baseDelQ = admin.from('interviews').delete().eq('id', id);
+    const scopedDelQ = orgId ? baseDelQ.eq('org_id', orgId) : baseDelQ;
+    const { error } = await scopedDelQ;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, hard: true });
   }
 
-  const { data: existing } = await supabase
+  const baseExQ = admin
     .from('interviews')
     .select('*, applications(jobs(title))')
-    .eq('id', id)
-    .maybeSingle();
+    .eq('id', id);
+  const scopedExQ = orgId ? baseExQ.eq('org_id', orgId) : baseExQ;
+  const { data: existing } = await scopedExQ.maybeSingle();
   if (!existing) {
     return NextResponse.json({ error: 'Interview not found' }, { status: 404 });
   }
@@ -255,12 +276,12 @@ export async function DELETE(
       applications?: { jobs?: { title?: string | null } | null } | null;
     }).applications?.jobs?.title ?? '';
 
-  const { data: row, error } = await supabase
+  const baseCancelQ = admin
     .from('interviews')
     .update({ status: 'cancelled' })
-    .eq('id', id)
-    .select('*')
-    .single();
+    .eq('id', id);
+  const scopedCancelQ = orgId ? baseCancelQ.eq('org_id', orgId) : baseCancelQ;
+  const { data: row, error } = await scopedCancelQ.select('*').single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   let emailWarning: string | null = null;

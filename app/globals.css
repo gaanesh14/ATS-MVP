@@ -142,6 +142,15 @@
 .dark .hover\:bg-rose-50:hover { background-color: rgb(244 63 94 / 0.18); }
 .dark .hover\:bg-brand-50:hover { background-color: rgb(15 123 108 / 0.22); }
 
+/* Opacity variants of pastel-50 (used by dialogs/banners) */
+.dark .bg-brand-50\/40 { background-color: rgb(15 123 108 / 0.10); }
+.dark .bg-brand-50\/60 { background-color: rgb(15 123 108 / 0.13); }
+.dark .bg-emerald-50\/40 { background-color: rgb(16 185 129 / 0.08); }
+.dark .bg-emerald-50\/60 { background-color: rgb(16 185 129 / 0.12); }
+.dark .bg-amber-50\/60 { background-color: rgb(245 158 11 / 0.12); }
+.dark .bg-rose-50\/60 { background-color: rgb(244 63 94 / 0.12); }
+.dark .bg-sky-50\/60 { background-color: rgb(14 165 233 / 0.12); }
+
 /* Pastel-700 text → lighter so contrast is readable */
 .dark .text-emerald-700 { color: rgb(110 231 183); }
 .dark .text-sky-700 { color: rgb(125 211 252); }

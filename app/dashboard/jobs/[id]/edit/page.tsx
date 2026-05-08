@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { supabase, type Job } from '@/lib/supabase';
 import { useAuth } from '@/components/shell/auth-provider';
 import { can } from '@/lib/rbac';
+import { authedFetch } from '@/lib/authed-fetch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -81,7 +82,7 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
     }
     setSubmitting(true);
 
-    const res = await fetch(`/api/jobs/${jobId}`, {
+    const res = await authedFetch(`/api/jobs/${jobId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

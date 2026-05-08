@@ -9,13 +9,24 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
-import { supabase, type TeamMember, type TeamRole } from '@/lib/supabase';
+import {
+  supabase,
+  type Organization,
+  type TeamMember,
+  type TeamRole,
+} from '@/lib/supabase';
 
 type AuthContextValue = {
   loading: boolean;
   authUser: User | null;
   member: TeamMember | null;
   role: TeamRole | null;
+  // The active organization for the signed-in user. Read from team_members
+  // → organizations after sign-in. Until the multi-tenancy migration has
+  // been applied this stays null and pages fall back to the legacy "single
+  // pool" behavior — see docs/scaling-rollout.md.
+  currentOrg: Organization | null;
+  orgId: string | null;
   signOut: () => Promise<void>;
   refreshMember: () => Promise<void>;
 };
@@ -25,6 +36,8 @@ const AuthContext = createContext<AuthContextValue>({
   authUser: null,
   member: null,
   role: null,
+  currentOrg: null,
+  orgId: null,
   signOut: async () => {},
   refreshMember: async () => {},
 });
@@ -51,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [member, setMember] = useState<TeamMember | null>(null);
+  const [currentOrg, setCurrentOrg] = useState<Organization | null>(null);
 
   const fetchMember = useCallback(
     async (user: User): Promise<TeamMember | null> => {
@@ -62,7 +76,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('auth_user_id', user.id)
         .maybeSingle();
 
-      if (byId.data) return byId.data as TeamMember;
+      if (byId.data) {
+        // The on_auth_user_created trigger may have linked auth_user_id at
+        // invite-send time, leaving status='pending'. The API requires
+        // status='active' (otherwise every authed call 403s with "No
+        // active team membership"). Flip it the first time the invitee
+        // actually shows up here.
+        if (byId.data.status === 'pending') {
+          const { data: activated } = await supabase
+            .from('team_members')
+            .update({
+              status: 'active',
+              joined_at: byId.data.joined_at ?? new Date().toISOString(),
+            })
+            .eq('id', byId.data.id)
+            .select('*')
+            .single();
+          return (activated ?? byId.data) as TeamMember;
+        }
+        return byId.data as TeamMember;
+      }
 
       const byEmail = await supabase
         .from('team_members')
@@ -110,16 +143,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // Look up the active organization for a team_member. Tolerates the
+  // pre-migration schema (no `org_id` column on team_members yet) by
+  // returning null instead of throwing — pages then fall back to legacy
+  // single-pool behavior. Once schema-migration-multi-tenancy.sql is
+  // applied this resolves to the user's real org.
+  const fetchOrg = useCallback(
+    async (m: TeamMember | null): Promise<Organization | null> => {
+      const orgId = (m as TeamMember & { org_id?: string | null })?.org_id;
+      if (!orgId) return null;
+      const { data } = await supabase
+        .from('organizations')
+        .select('*')
+        .eq('id', orgId)
+        .maybeSingle();
+      return (data as Organization | null) ?? null;
+    },
+    []
+  );
+
   const refreshMember = useCallback(async () => {
     if (!authUser) return;
     const m = await fetchMember(authUser);
     setMember(m);
-  }, [authUser, fetchMember]);
+    setCurrentOrg(await fetchOrg(m));
+  }, [authUser, fetchMember, fetchOrg]);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setAuthUser(null);
     setMember(null);
+    setCurrentOrg(null);
     router.replace('/login');
   }, [router]);
 
@@ -158,8 +212,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .then(() => {});
       }
 
+      const org = await fetchOrg(m);
+      if (!active) return;
+
       setAuthUser(user);
       setMember(m);
+      setCurrentOrg(org);
       setLoading(false);
     }
 
@@ -179,7 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       active = false;
       sub.subscription.unsubscribe();
     };
-  }, [router, fetchMember]);
+  }, [router, fetchMember, fetchOrg]);
 
   if (loading) {
     return (
@@ -201,6 +259,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         authUser,
         member,
         role: member?.role ?? null,
+        currentOrg,
+        orgId: currentOrg?.id ?? null,
         signOut,
         refreshMember,
       }}

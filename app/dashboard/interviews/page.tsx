@@ -28,6 +28,7 @@ import { supabase, type Interview } from '@/lib/supabase';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/components/shell/auth-provider';
 import { can } from '@/lib/rbac';
+import { authedFetch } from '@/lib/authed-fetch';
 import {
   INTERVIEW_STATUS_LABEL,
   INTERVIEW_STATUS_TONE,
@@ -141,7 +142,7 @@ export default function InterviewsPage() {
 
   // Update an interview (status flip, etc) without a full refetch.
   async function patchInterview(id: string, body: Record<string, unknown>) {
-    const res = await fetch(`/api/interviews/${id}`, {
+    const res = await authedFetch(`/api/interviews/${id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -156,7 +157,7 @@ export default function InterviewsPage() {
 
   async function cancel(id: string) {
     if (!confirm('Cancel this interview? The candidate will be emailed.')) return;
-    const res = await fetch(`/api/interviews/${id}`, { method: 'DELETE' });
+    const res = await authedFetch(`/api/interviews/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       alert(j.error ?? 'Could not cancel.');
@@ -166,7 +167,7 @@ export default function InterviewsPage() {
   }
 
   async function resendInvite(id: string) {
-    const res = await fetch(`/api/interviews/${id}/send-invite`, {
+    const res = await authedFetch(`/api/interviews/${id}/send-invite`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ action: 'created' }),

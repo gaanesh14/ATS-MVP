@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { requireRoleFromRequest, AuthError } from '@/lib/auth-server';
 
 export const runtime = 'nodejs';
 
@@ -46,6 +46,16 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   const { id } = params;
+
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'jobs.edit');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -150,28 +160,41 @@ export async function PATCH(
     update.extra_stages = cleaned;
   }
 
-  const { data, error } = await supabase
-    .from('jobs')
-    .update(update)
-    .eq('id', id)
-    .select('*')
-    .single();
+  // Tenant scope — orgId is null on pre-migration projects, in which case
+  // the .eq filter is skipped and we behave like the legacy single-pool app.
+  const baseUpdate = admin.from('jobs').update(update).eq('id', id);
+  const scopedUpdate = orgId ? baseUpdate.eq('org_id', orgId) : baseUpdate;
+  const { data, error } = await scopedUpdate.select('*').single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (!data) {
+    return NextResponse.json({ error: 'Job not found' }, { status: 404 });
   }
 
   return NextResponse.json({ ok: true, job: data });
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string } }
 ) {
   const { id } = params;
 
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'jobs.delete');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   // ON DELETE CASCADE on the FK takes care of applications + answers.
-  const { error } = await supabase.from('jobs').delete().eq('id', id);
+  const baseDelete = admin.from('jobs').delete().eq('id', id);
+  const scopedDelete = orgId ? baseDelete.eq('org_id', orgId) : baseDelete;
+  const { error } = await scopedDelete;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

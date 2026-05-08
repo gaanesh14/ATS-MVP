@@ -22,7 +22,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <UpcomingInterviewsProvider>
-      <div className="flex min-h-screen bg-page lg:h-screen lg:overflow-hidden dark:bg-slate-950">
+      {/* Single-scroller layout: only the window scrolls. No nested
+          overflow containers — that's what was producing two scrollbars
+          on pages whose content fit within the viewport. Sidebar and
+          topbar stay visible via `sticky top-0`. */}
+      <div className="flex min-h-screen bg-page dark:bg-slate-950">
         <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
 
         {/* Backdrop — only on mobile when the drawer is open */}
@@ -36,8 +40,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <Topbar onMenuClick={() => setMobileOpen(true)} />
-          <main className="flex-1 lg:overflow-y-auto">
+          <div className="sticky top-0 z-20">
+            <Topbar onMenuClick={() => setMobileOpen(true)} />
+          </div>
+          <main className="flex-1">
             <InterviewAlertBanner />
             {children}
           </main>

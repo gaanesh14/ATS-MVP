@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search,
   UserPlus,
@@ -25,6 +25,7 @@ import {
 import { type TeamMember, type TeamRole, type TeamStatus } from '@/lib/supabase';
 import { allRoles, can, roleDescription, roleLabel } from '@/lib/rbac';
 import { useAuth } from '@/components/shell/auth-provider';
+import { authedFetch } from '@/lib/authed-fetch';
 import { cn, formatDate } from '@/lib/utils';
 
 const ROLE_PILL: Record<TeamRole, string> = {
@@ -52,7 +53,7 @@ export default function TeamPage() {
     setLoadError(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/team', { cache: 'no-store' });
+      const res = await authedFetch('/api/team', { cache: 'no-store' });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setLoadError(
@@ -379,6 +380,13 @@ function InviteDialog({
   // Soft warning shown when the row was saved but the email layer failed
   // (e.g. Brevo SMTP not configured yet, service-role key missing).
   const [emailWarning, setEmailWarning] = useState<string | null>(null);
+  // A synchronous lock against rapid double-clicks. The button's
+  // `disabled` prop reads `submitting` (a state variable), but state
+  // updates are batched and async — between the first click firing
+  // `send()` and React applying setSubmitting(true), a second click
+  // can sneak in and trigger a duplicate POST /api/team. The ref flips
+  // immediately, so the second invocation early-returns.
+  const sendingRef = useRef(false);
 
   function reset() {
     setEmail('');
@@ -387,38 +395,46 @@ function InviteDialog({
     setSubmitting(false);
     setError(null);
     setEmailWarning(null);
+    sendingRef.current = false;
   }
 
   async function send() {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
     setError(null);
     setEmailWarning(null);
     if (!email.trim()) {
       setError('Email is required.');
+      sendingRef.current = false;
       return;
     }
     setSubmitting(true);
-    const res = await fetch('/api/team', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), name: name.trim(), role }),
-    });
-    setSubmitting(false);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      setError(err.error ?? `Failed: HTTP ${res.status}`);
-      return;
+    try {
+      const res = await authedFetch('/api/team', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), name: name.trim(), role }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setError(err.error ?? `Failed: HTTP ${res.status}`);
+        return;
+      }
+      const json = (await res.json().catch(() => ({}))) as {
+        emailSent?: boolean;
+        emailWarning?: string | null;
+      };
+      if (json.emailWarning) {
+        // Row saved, email failed. Keep the dialog open so the user sees why.
+        setEmailWarning(json.emailWarning);
+        return;
+      }
+      reset();
+      onSent();
+    } finally {
+      setSubmitting(false);
+      sendingRef.current = false;
     }
-    const json = (await res.json().catch(() => ({}))) as {
-      emailSent?: boolean;
-      emailWarning?: string | null;
-    };
-    if (json.emailWarning) {
-      // Row saved, email failed. Keep the dialog open so the user sees why.
-      setEmailWarning(json.emailWarning);
-      return;
-    }
-    reset();
-    onSent();
   }
 
   return (
@@ -606,7 +622,7 @@ function ManageMemberDialog({
 
   async function patch(body: Record<string, unknown>): Promise<boolean> {
     setError(null);
-    const res = await fetch(`/api/team/${member!.id}`, {
+    const res = await authedFetch(`/api/team/${member!.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -628,7 +644,7 @@ function ManageMemberDialog({
 
   async function archive() {
     setBusy('archive');
-    const res = await fetch(`/api/team/${member!.id}`, { method: 'DELETE' });
+    const res = await authedFetch(`/api/team/${member!.id}`, { method: 'DELETE' });
     setBusy(null);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

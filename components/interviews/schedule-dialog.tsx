@@ -37,6 +37,7 @@ import type {
   TeamMember,
 } from '@/lib/supabase';
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authed-fetch';
 
 type Mode = 'create' | 'edit';
 
@@ -175,7 +176,7 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
 
     let res: Response;
     try {
-      res = await fetch(url, {
+      res = await authedFetch(url, {
         method,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
@@ -222,7 +223,7 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="max-w-2xl gap-0 p-0">
-        <DialogHeader className="space-y-0 border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-6 pb-5 pt-6">
+        <DialogHeader className="space-y-0 border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-6 pb-5 pt-6 dark:from-slate-800 dark:to-slate-900">
           <div className="flex items-start gap-4">
             <div className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
               <Calendar className="h-5 w-5" />

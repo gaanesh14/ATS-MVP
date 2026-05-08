@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/shell/auth-provider';
@@ -55,7 +55,23 @@ export default function NewJobPage() {
   const [vacancies, setVacancies] = useState('1');
   const [questions, setQuestions] = useState<QuestionDraft[]>([]);
 
+  // After Add Question, bring the new row into view (only if it's
+  // off-screen) and focus its input. `block: 'nearest'` avoids
+  // jumping the page when the row is already visible.
+  const lastQuestionInputRef = useRef<HTMLInputElement | null>(null);
+  const justAddedRef = useRef(false);
+  useEffect(() => {
+    if (!justAddedRef.current) return;
+    justAddedRef.current = false;
+    const el = lastQuestionInputRef.current;
+    if (!el) return;
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const t = setTimeout(() => el.focus({ preventScroll: true }), 250);
+    return () => clearTimeout(t);
+  }, [questions.length]);
+
   function addQuestion() {
+    justAddedRef.current = true;
     setQuestions((q) => [...q, { question: '', question_type: 'text', is_required: true }]);
   }
   function removeQuestion(i: number) {
@@ -137,7 +153,7 @@ export default function NewJobPage() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-6">
+      <form id="create-job-form" onSubmit={handleSubmit} className="mt-6 space-y-6">
         {/* Basic details */}
         <FormSection
           icon={<Briefcase className="h-4 w-4" />}
@@ -160,7 +176,7 @@ export default function NewJobPage() {
           >
             <Textarea
               id="description"
-              rows={8}
+              rows={5}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe the role, must-have skills, and team you'd be joining…"
@@ -259,67 +275,75 @@ export default function NewJobPage() {
             </button>
           }
         >
-          {questions.length === 0 ? (
-            <div className="grid place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/40 px-4 py-8 text-center">
-              <HelpCircle className="h-5 w-5 text-slate-400" />
-              <p className="mt-2 text-[13px] text-slate-600">No screening questions added.</p>
-              <p className="mt-0.5 text-[12px] text-slate-400">
-                Useful for years of experience, location preference, notice period, etc.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {questions.map((q, i) => (
+          {/* No own scrollbar — list flows into the page scroll so we
+              never get nested scrollbars when many questions are added. */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-800/40">
+            {questions.length === 0 ? (
+              <div className="grid place-items-center px-4 py-8 text-center">
+                <div>
+                  <HelpCircle className="mx-auto h-5 w-5 text-slate-400" />
+                  <p className="mt-2 text-[13px] text-slate-600">No screening questions added.</p>
+                  <p className="mt-0.5 text-[12px] text-slate-400">
+                    Useful for years of experience, location preference, notice period, etc.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2 p-3">
+                {questions.map((q, i) => (
                 <div
                   key={i}
-                  className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3.5"
+                  className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-slate-300 hover:bg-slate-50/50"
                 >
-                  <div className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg bg-brand-50 text-[12px] font-bold text-brand-600">
-                    Q{i + 1}
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <Input
-                      value={q.question}
-                      onChange={(e) => updateQuestion(i, { question: e.target.value })}
-                      placeholder="e.g. How many years of React experience do you have?"
+                  <span className="num grid h-6 w-6 flex-shrink-0 place-items-center rounded-md bg-brand-50 text-[11px] font-semibold text-brand-600">
+                    {i + 1}
+                  </span>
+                  <Input
+                    ref={i === questions.length - 1 ? lastQuestionInputRef : undefined}
+                    value={q.question}
+                    onChange={(e) => updateQuestion(i, { question: e.target.value })}
+                    placeholder="Question"
+                    className="h-9 min-w-0 flex-1"
+                  />
+                  <select
+                    value={q.question_type}
+                    onChange={(e) =>
+                      updateQuestion(i, {
+                        question_type: e.target.value as QuestionDraft['question_type'],
+                      })
+                    }
+                    className="h-9 flex-shrink-0 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 text-[12.5px] font-medium text-slate-700 transition-colors hover:border-slate-300 focus:border-brand-400 focus:outline-none"
+                    title="Answer type"
+                  >
+                    <option value="text">Text</option>
+                    <option value="number">Number</option>
+                    <option value="yesno">Yes / No</option>
+                  </select>
+                  <label
+                    className="inline-flex flex-shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[12px] font-medium text-slate-600"
+                    title="Candidates must answer"
+                  >
+                    <Checkbox
+                      checked={q.is_required}
+                      onCheckedChange={(v) =>
+                        updateQuestion(i, { is_required: Boolean(v) })
+                      }
                     />
-                    <div className="flex flex-wrap items-center gap-3">
-                      <select
-                        value={q.question_type}
-                        onChange={(e) =>
-                          updateQuestion(i, {
-                            question_type: e.target.value as QuestionDraft['question_type'],
-                          })
-                        }
-                        className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] font-medium text-slate-700 transition-colors hover:border-slate-300 focus:border-brand-400 focus:outline-none"
-                      >
-                        <option value="text">Text</option>
-                        <option value="number">Number</option>
-                        <option value="yesno">Yes / No</option>
-                      </select>
-                      <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-slate-700">
-                        <Checkbox
-                          checked={q.is_required}
-                          onCheckedChange={(v) =>
-                            updateQuestion(i, { is_required: Boolean(v) })
-                          }
-                        />
-                        Required
-                      </label>
-                    </div>
-                  </div>
+                    Required
+                  </label>
                   <button
                     type="button"
                     onClick={() => removeQuestion(i)}
                     aria-label="Remove question"
-                    className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                    className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </FormSection>
 
         {error && (
@@ -329,8 +353,7 @@ export default function NewJobPage() {
           </div>
         )}
 
-        {/* Sticky-ish action bar */}
-        <div className="flex items-center justify-end gap-2 rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-card">
+        <div className="flex items-center justify-end gap-2 pt-2">
           <Button
             type="button"
             variant="ghost"

@@ -1,20 +1,31 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
 import { sendTeamInvite } from '@/lib/supabase-admin';
+import { requireRoleFromRequest, AuthError } from '@/lib/auth-server';
 
 export const runtime = 'nodejs';
 
 const VALID_ROLES = new Set(['super_admin', 'admin', 'recruiter']);
 
 // GET /api/team
-// Returns every team member, ordered with active first then pending then
-// archived, then alphabetically by name.
-export async function GET() {
-  const { data, error } = await supabase
+// Returns every team member in the caller's org, ordered with active first
+// then pending then archived, then alphabetically by name.
+export async function GET(req: Request) {
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'team.view');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
+  const baseQuery = admin
     .from('team_members')
     .select('*')
     .order('status', { ascending: true })
     .order('name', { ascending: true });
+  const scopedQuery = orgId ? baseQuery.eq('org_id', orgId) : baseQuery;
+  const { data, error } = await scopedQuery;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -29,6 +40,15 @@ export async function GET() {
 // in our case). Email failures are non-fatal: the team_members row is
 // already saved and a recruiter can resend later.
 export async function POST(req: Request) {
+  let auth;
+  try {
+    auth = await requireRoleFromRequest(req, 'team.invite');
+  } catch (err) {
+    if (err instanceof AuthError) return err.toResponse();
+    throw err;
+  }
+  const { admin, orgId } = auth;
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -51,18 +71,21 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data: existing } = await supabase
+  // Look up existing row scoped to the caller's org. Same email can exist in
+  // a different tenant — we only collide within the org.
+  const baseExisting = admin
     .from('team_members')
     .select('id, status')
-    .eq('email', email)
-    .maybeSingle();
+    .eq('email', email);
+  const scopedExisting = orgId ? baseExisting.eq('org_id', orgId) : baseExisting;
+  const { data: existing } = await scopedExisting.maybeSingle();
 
   let memberRow: Record<string, unknown>;
 
   if (existing) {
     if (existing.status === 'archived') {
       // Reactivate an archived row instead of erroring out.
-      const { data, error } = await supabase
+      const { data, error } = await admin
         .from('team_members')
         .update({
           name,
@@ -84,16 +107,23 @@ export async function POST(req: Request) {
       );
     }
   } else {
-    const { data, error } = await supabase
+    const insertRow: Record<string, unknown> = {
+      email,
+      name,
+      role,
+      title,
+      status: 'pending',
+      invited_at: new Date().toISOString(),
+    };
+    // Stamp org_id on the new row when running post-migration. Pre-migration
+    // the column doesn't exist; including it would raise. The trigger on
+    // applications doesn't apply here — team_members has no parent to derive
+    // from, so we set it explicitly from the caller's org.
+    if (orgId) insertRow.org_id = orgId;
+
+    const { data, error } = await admin
       .from('team_members')
-      .insert({
-        email,
-        name,
-        role,
-        title,
-        status: 'pending',
-        invited_at: new Date().toISOString(),
-      })
+      .insert(insertRow)
       .select('*')
       .single();
 

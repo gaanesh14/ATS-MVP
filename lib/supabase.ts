@@ -5,6 +5,16 @@ export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// Tenant. Every row in the dashboard belongs to one organization. The
+// `org_id` foreign key is added by docs/schema-migration-multi-tenancy.sql
+// and is used by RLS policies + the `current_org_id()` Postgres function.
+export type Organization = {
+  id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+};
+
 export type StageColor =
   | 'sky'
   | 'amber'
@@ -26,6 +36,7 @@ export type JobStage = {
 
 export type Job = {
   id: string;
+  org_id: string;
   title: string;
   description: string | null;
   location: string | null;
@@ -41,6 +52,7 @@ export type Job = {
 
 export type JobQuestion = {
   id: string;
+  org_id: string;
   job_id: string;
   question: string;
   question_type: 'text' | 'number' | 'yesno';
@@ -90,6 +102,7 @@ export type TeamStatus = 'active' | 'pending' | 'archived';
 
 export type TeamMember = {
   id: string;
+  org_id: string;
   email: string;
   name: string;
   role: TeamRole;
@@ -122,6 +135,7 @@ export type InterviewParticipant = {
 
 export type Interview = {
   id: string;
+  org_id: string;
   application_id: string;
   job_id: string;
   scheduled_by: string | null;
@@ -144,7 +158,14 @@ export type Interview = {
 
 export type Application = {
   id: string;
+  org_id: string;
   job_id: string;
+  // Optimistic-concurrency token bumped on every UPDATE by a Postgres
+  // trigger. Stage-change endpoints compare-and-swap on (id, version) so
+  // two recruiters moving the same candidate at the same time can't both
+  // succeed silently — the second one's update no-ops and the UI refreshes.
+  version: number;
+  updated_at: string;
   full_name: string;
   email: string;
   phone: string | null;
