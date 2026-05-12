@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Calendar,
   Clock,
@@ -11,7 +11,6 @@ import {
   Loader2,
   X,
   Check,
-  ExternalLink,
 } from 'lucide-react';
 import {
   Dialog,
@@ -62,7 +61,6 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
   const [time, setTime] = useState(defaults.time);
   const [duration, setDuration] = useState<number>(defaults.duration);
   const [provider, setProvider] = useState<InterviewMeetingProvider>(defaults.provider);
-  const [manualLink, setManualLink] = useState(defaults.manualLink);
   const [notes, setNotes] = useState(defaults.notes);
   const [participants, setParticipants] = useState<InterviewParticipant[]>(
     defaults.participants
@@ -76,6 +74,23 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
   const [forceConflict, setForceConflict] = useState(false);
   const [forceDuplicate, setForceDuplicate] = useState(false);
   const [success, setSuccess] = useState<Interview | null>(null);
+  // null = loading, true/false = known. Drives the Google Meet tile state
+  // and gates submit when google_meet is selected.
+  const [googleConnected, setGoogleConnected] = useState<boolean | null>(null);
+
+  const refreshGoogleStatus = useCallback(async () => {
+    try {
+      const res = await authedFetch('/api/integrations/google');
+      if (!res.ok) {
+        setGoogleConnected(false);
+        return;
+      }
+      const json = (await res.json()) as { connected: boolean };
+      setGoogleConnected(Boolean(json.connected));
+    } catch {
+      setGoogleConnected(false);
+    }
+  }, []);
 
   // Reset form whenever the dialog re-opens or the source interview changes.
   useEffect(() => {
@@ -85,7 +100,6 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
     setTime(d.time);
     setDuration(d.duration);
     setProvider(d.provider);
-    setManualLink(d.manualLink);
     setNotes(d.notes);
     setParticipants(d.participants);
     setError(null);
@@ -111,6 +125,14 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
       alive = false;
     };
   }, [props.open]);
+
+  // Google Calendar connection status — refreshed each time the dialog
+  // opens so a recruiter who just connected sees the updated state.
+  useEffect(() => {
+    if (!props.open) return;
+    setGoogleConnected(null);
+    refreshGoogleStatus();
+  }, [props.open, refreshGoogleStatus]);
 
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
   const scheduledIso = combineDateTime(date, time);
@@ -158,12 +180,12 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
       force_conflict: forceConflict,
       force_duplicate: forceDuplicate,
     };
-    // Only send meeting_link when we actually have a value to set or clear.
-    // For 'jitsi' on reschedule, omit it so the server keeps the existing
-    // auto-generated link (sending null would clobber it).
-    if (provider === 'manual') {
-      payload.meeting_link = manualLink.trim();
-    } else if (provider === 'none') {
+    // Only set meeting_link when we have a definitive value: 'none' clears
+    // it; 'google_meet' lets the server generate it via Calendar API. For
+    // legacy providers (jitsi/manual on existing rows being edited) we
+    // omit meeting_link entirely so the server preserves what's already
+    // stored — sending null would clobber it.
+    if (provider === 'none') {
       payload.meeting_link = null;
     }
     if (mode === 'create') {
@@ -210,12 +232,18 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
       return;
     }
 
-    if (json.emailWarning) {
-      setWarnings(`Saved, but the invite email failed: ${json.emailWarning}`);
-    }
+    // The API can surface two non-fatal warnings:
+    //   emailWarning    — Brevo couldn't send the candidate notification
+    //   providerWarning — Google Calendar step degraded (no token, revoked)
+    // Concatenate so the recruiter sees both if they happened.
+    const w: string[] = [];
+    if (json.providerWarning) w.push(String(json.providerWarning));
+    if (json.emailWarning) w.push(`Email: ${json.emailWarning}`);
+    if (w.length > 0) setWarnings(w.join(' · '));
+
     setSuccess(json.interview as Interview);
     props.onSaved?.(json.interview as Interview);
-    if (!json.emailWarning) {
+    if (w.length === 0) {
       setTimeout(() => props.onOpenChange(false), 700);
     }
   }
@@ -285,21 +313,18 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
                   <Video className="h-3.5 w-3.5" />
                   Video meeting
                 </Label>
-                <div className="grid gap-2 sm:grid-cols-3">
+                <div className="grid gap-2 sm:grid-cols-2">
                   <ProviderTile
-                    selected={provider === 'jitsi'}
-                    onClick={() => setProvider('jitsi')}
+                    selected={provider === 'google_meet'}
+                    onClick={() => setProvider('google_meet')}
                     icon={<Video className="h-4 w-4" />}
-                    title="Jitsi Meet"
-                    body="Auto-generated, no login"
+                    title="Google Meet"
+                    body={
+                      googleConnected === false
+                        ? 'Connect Google Calendar to enable'
+                        : 'Auto-generated, synced to Calendar'
+                    }
                     tone="brand"
-                  />
-                  <ProviderTile
-                    selected={provider === 'manual'}
-                    onClick={() => setProvider('manual')}
-                    icon={<ExternalLink className="h-4 w-4" />}
-                    title="Custom link"
-                    body="Zoom, Teams, or Meet"
                   />
                   <ProviderTile
                     selected={provider === 'none'}
@@ -309,14 +334,22 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
                     body="In-person or phone"
                   />
                 </div>
-                {provider === 'manual' && (
-                  <Input
-                    type="url"
-                    placeholder="https://zoom.us/j/123456789"
-                    value={manualLink}
-                    onChange={(e) => setManualLink(e.target.value)}
-                    className="mt-2.5"
-                  />
+                {provider === 'google_meet' && googleConnected === false && (
+                  <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-[12.5px] text-amber-800">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>
+                      You haven&apos;t connected Google Calendar yet.{' '}
+                      <a
+                        href="/dashboard/settings?tab=integrations"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold underline"
+                      >
+                        Connect in Settings → Integrations
+                      </a>{' '}
+                      first, or pick another option.
+                    </span>
+                  </div>
                 )}
               </div>
 
@@ -439,7 +472,11 @@ export function ScheduleInterviewDialog(props: ScheduleDialogProps) {
             </Button>
             <Button
               onClick={submit}
-              disabled={busy || !scheduledIso}
+              disabled={
+                busy ||
+                !scheduledIso ||
+                (provider === 'google_meet' && googleConnected === false)
+              }
               className="bg-brand-500 hover:bg-brand-600"
             >
               {busy ? (
@@ -468,7 +505,6 @@ function buildDefaults(interview: Interview | null | undefined) {
       time: toTimeInput(d),
       duration: interview.duration_minutes,
       provider: interview.meeting_provider,
-      manualLink: interview.meeting_provider === 'manual' ? interview.meeting_link ?? '' : '',
       notes: interview.notes ?? '',
       participants: interview.participants ?? [],
     };
@@ -481,8 +517,7 @@ function buildDefaults(interview: Interview | null | undefined) {
     date: toDateInput(t),
     time: toTimeInput(t),
     duration: 30,
-    provider: 'jitsi' as InterviewMeetingProvider,
-    manualLink: '',
+    provider: 'google_meet' as InterviewMeetingProvider,
     notes: '',
     participants: [] as InterviewParticipant[],
   };

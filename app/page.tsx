@@ -120,8 +120,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <footer className="border-t border-slate-100 bg-white/60 py-6">
-        <div className="mx-auto max-w-5xl px-4 text-center text-[12px] text-slate-400">
+      <footer className="border-t border-slate-100 bg-white/80 py-6">
+        <div className="mx-auto max-w-5xl px-4 text-center text-[12px] text-slate-500">
           PhotonX ATS · v0.1
         </div>
       </footer>

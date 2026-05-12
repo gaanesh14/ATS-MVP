@@ -20,6 +20,7 @@ import {
   formatInterviewDateTime,
   formatDuration,
   isUpcoming,
+  isPastDue,
 } from '@/lib/interviews';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1898,17 +1899,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              {iv.meeting_link && iv.status === 'scheduled' && (
-                                <a
-                                  href={iv.meeting_link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-brand-600 hover:border-brand-200 hover:bg-brand-50/40"
-                                >
-                                  <Video className="h-3.5 w-3.5" />
-                                  Join
-                                </a>
-                              )}
+                              {iv.meeting_link &&
+                                iv.status === 'scheduled' &&
+                                !isPastDue(iv) && (
+                                  <a
+                                    href={iv.meeting_link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-brand-600 hover:border-brand-200 hover:bg-brand-50/40"
+                                  >
+                                    <Video className="h-3.5 w-3.5" />
+                                    Join
+                                  </a>
+                                )}
                               <span
                                 className={cn(
                                   'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold ring-1',

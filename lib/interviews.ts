@@ -36,8 +36,11 @@ export const INTERVIEW_STATUS_TONE: Record<
   no_show: { dot: 'bg-rose-500', pill: 'bg-rose-50 text-rose-700 ring-rose-200' },
 };
 
+// Display strings shown next to each interview row. 'jitsi' stays here so
+// legacy rows render with a sensible label — but it's no longer an option
+// in the schedule dialog.
 export const PROVIDER_LABEL: Record<InterviewMeetingProvider, string> = {
-  jitsi: 'Jitsi Meet',
+  jitsi: 'Jitsi Meet (legacy)',
   google_meet: 'Google Meet',
   manual: 'Custom link',
   none: 'No video',
@@ -134,46 +137,12 @@ export function findConflicts(
 // ──────────────────────────────────────────────────────────────────────────
 // Meeting link generation
 //
-// Jitsi Meet is a free, no-auth video room. We generate a path-safe slug so
-// nothing collides. The first interview for "Acme Hire" with Joe Smith might
-// be https://meet.jit.si/photonx-acme-hire-joe-smith-a3f9.
+// Removed in favor of Google Calendar API integration. See
+// lib/google-calendar.ts for the createMeetEvent flow. The 'jitsi' provider
+// stays in the InterviewMeetingProvider union so legacy rows render — but
+// new interviews can no longer be scheduled with it (see VALID_PROVIDERS
+// in app/api/interviews/route.ts).
 // ──────────────────────────────────────────────────────────────────────────
-
-export function generateJitsiLink(opts: {
-  jobTitle: string;
-  candidateName: string;
-}): string {
-  const base = 'https://meet.jit.si/';
-  const slug = [
-    'photonx',
-    slugify(opts.jobTitle),
-    slugify(opts.candidateName),
-    randomToken(4),
-  ]
-    .filter(Boolean)
-    .join('-')
-    .slice(0, 80);
-  return base + slug;
-}
-
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 24);
-}
-
-function randomToken(len: number): string {
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let out = '';
-  for (let i = 0; i < len; i++) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return out;
-}
 
 // ──────────────────────────────────────────────────────────────────────────
 // iCalendar (.ics) generation

@@ -2,11 +2,15 @@ import { NextResponse } from 'next/server';
 import { requireRoleFromRequest, AuthError } from '@/lib/auth-server';
 import {
   validateSchedule,
-  generateJitsiLink,
   findConflicts,
   INTERVIEW_DURATIONS,
 } from '@/lib/interviews';
 import { sendInterviewInvite } from '@/lib/email/interview-invite';
+import {
+  createCalendarEvent,
+  getValidAccessToken,
+  GoogleCalendarError,
+} from '@/lib/google-calendar';
 import type {
   Interview,
   InterviewMeetingProvider,
@@ -15,8 +19,11 @@ import type {
 
 export const runtime = 'nodejs';
 
+// 'jitsi' is intentionally omitted — we no longer accept it for NEW
+// interviews. Existing rows with meeting_provider='jitsi' still read fine
+// (the union in lib/supabase.ts keeps it) and PATCH on those rows still
+// works as long as the body doesn't change the provider.
 const VALID_PROVIDERS = new Set<InterviewMeetingProvider>([
-  'jitsi',
   'google_meet',
   'manual',
   'none',
@@ -85,7 +92,7 @@ export async function POST(req: Request) {
     if (err instanceof AuthError) return err.toResponse();
     throw err;
   }
-  const { admin, orgId } = auth;
+  const { admin, orgId, member } = auth;
 
   let body: Record<string, unknown>;
   try {
@@ -119,7 +126,9 @@ export async function POST(req: Request) {
   const provider = String(body.meeting_provider ?? 'jitsi') as InterviewMeetingProvider;
   const manualLink = body.meeting_link ? String(body.meeting_link).trim() : null;
   const notes = body.notes ? String(body.notes).trim() : null;
-  const scheduledBy = body.scheduled_by ? String(body.scheduled_by) : null;
+  // Default to the authed user so google_meet has a token-bearer to look up.
+  // Callers can still override with an explicit scheduled_by in the body.
+  const scheduledBy = body.scheduled_by ? String(body.scheduled_by) : member.id;
   const participants = Array.isArray(body.participants)
     ? (body.participants as InterviewParticipant[]).filter(
         (p) => p && typeof p.email === 'string' && p.email.trim()
@@ -237,15 +246,58 @@ export async function POST(req: Request) {
   console.log('[interview] ✓ no conflicts');
 
   let meetingLink: string | null = null;
-  if (provider === 'jitsi') {
-    meetingLink = generateJitsiLink({
-      jobTitle,
-      candidateName: (app as { full_name: string }).full_name ?? 'Candidate',
-    });
-  } else if (provider === 'manual') {
+  let googleEventId: string | null = null;
+  // Surfaced as part of the response so the UI can show a yellow banner
+  // when the row was saved but the Calendar step degraded. Distinct from
+  // emailWarning further down — this one is about Google, that one is
+  // about Brevo.
+  let providerWarning: string | null = null;
+
+  if (provider === 'manual') {
     meetingLink = manualLink;
+  } else if (provider === 'google_meet') {
+    // Create the event in the scheduler's Google Calendar. The event owner
+    // is whoever PhotonX recorded as scheduled_by; reschedules/cancels use
+    // the SAME owner's tokens so the same Calendar event is patched.
+    const accessToken = await getValidAccessToken(admin, scheduledBy);
+    if (!accessToken) {
+      console.log(
+        '[interview] ⚠ google_meet requested but scheduler has no valid Google token'
+      );
+      providerWarning =
+        'Google Meet selected, but the scheduler has not connected Google Calendar (or the connection expired). The interview is saved without a Meet link. Connect Google in Settings → Integrations and edit the interview to add one.';
+    } else {
+      const candidateName = (app as { full_name: string }).full_name ?? 'Candidate';
+      const candidateEmail = (app as { email: string }).email;
+      try {
+        const ev = await createCalendarEvent(accessToken, {
+          scheduledAt,
+          durationMinutes: duration,
+          timezone: tz,
+          summary: `Interview: ${candidateName} · ${jobTitle}`,
+          description: buildEventDescription({ jobTitle, notes }),
+          attendees: [
+            { email: candidateEmail, displayName: candidateName },
+            ...participants.map((p) => ({ email: p.email, displayName: p.name })),
+          ],
+        });
+        meetingLink = ev.meetLink;
+        googleEventId = ev.eventId;
+        console.log('[interview] ✓ Google Calendar event created:', ev.eventId);
+      } catch (err) {
+        const isAuth =
+          err instanceof GoogleCalendarError && err.status === 401;
+        console.error(
+          '[interview] ✗ Calendar event creation failed:',
+          err instanceof Error ? err.message : String(err)
+        );
+        providerWarning = isAuth
+          ? 'Google Calendar rejected the request (token revoked). Reconnect in Settings → Integrations, then edit the interview to add the Meet link.'
+          : 'Could not create the Google Calendar event. The interview is saved; you can add a meeting link by editing it.';
+      }
+    }
   }
-  // google_meet & none → null link until OAuth lands.
+  // 'none' → null link, no warning.
 
   const insert: Record<string, unknown> = {
     application_id: applicationId,
@@ -259,6 +311,7 @@ export async function POST(req: Request) {
     status: 'scheduled' as const,
     meeting_provider: provider,
     meeting_link: meetingLink,
+    google_calendar_event_id: googleEventId,
     participants,
     notes,
   };
@@ -309,6 +362,21 @@ export async function POST(req: Request) {
     interview: row,
     emailSent: !emailWarning,
     emailWarning,
+    providerWarning,
     durations: INTERVIEW_DURATIONS,
   });
+}
+
+// Body of the Google Calendar event description. Includes the job title +
+// any recruiter notes + a "Scheduled via PhotonX" footer so events created
+// here are distinguishable from manually-created ones in the calendar UI.
+function buildEventDescription(opts: {
+  jobTitle: string;
+  notes: string | null;
+}): string {
+  const parts: string[] = [];
+  if (opts.jobTitle) parts.push(`Role: ${opts.jobTitle}`);
+  if (opts.notes) parts.push('', 'Notes:', opts.notes);
+  parts.push('', '— Scheduled via PhotonX ATS');
+  return parts.join('\n');
 }

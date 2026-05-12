@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server';
 import { requireRoleFromRequest, AuthError } from '@/lib/auth-server';
-import {
-  validateSchedule,
-  findConflicts,
-  generateJitsiLink,
-} from '@/lib/interviews';
+import { validateSchedule, findConflicts } from '@/lib/interviews';
 import { sendInterviewInvite } from '@/lib/email/interview-invite';
+import {
+  deleteCalendarEvent,
+  getValidAccessToken,
+  updateCalendarEvent,
+  GoogleCalendarError,
+} from '@/lib/google-calendar';
 import type {
   Interview,
   InterviewMeetingProvider,
   InterviewStatus,
   InterviewParticipant,
 } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 
@@ -21,12 +24,104 @@ const VALID_STATUSES = new Set<InterviewStatus>([
   'cancelled',
   'no_show',
 ]);
+// 'jitsi' is intentionally omitted from the PATCH allowlist as well.
+// Legacy rows with meeting_provider='jitsi' read fine — only an explicit
+// attempt to SET provider TO jitsi is rejected.
 const VALID_PROVIDERS = new Set<InterviewMeetingProvider>([
-  'jitsi',
   'google_meet',
   'manual',
   'none',
 ]);
+
+// Sync changes to a google_meet interview back to its Calendar event.
+// Called from PATCH and DELETE. Tolerates missing tokens, deleted events,
+// and provider mismatch — none of those should block the DB write. Returns
+// a warning string (or null) for the caller to surface to the user.
+//
+// Scenarios:
+//   • Status flipped to cancelled  → delete the Calendar event
+//   • Time/duration/participants/notes changed → patch the event
+//   • Anything else                → no-op
+async function syncCalendarForUpdate(
+  admin: SupabaseClient,
+  before: Interview,
+  after: Interview,
+  jobTitle: string
+): Promise<string | null> {
+  // Nothing to sync if the row was never bound to a Calendar event.
+  if (!before.google_calendar_event_id) return null;
+  // Nothing to sync if this never was a google_meet interview.
+  if (before.meeting_provider !== 'google_meet') return null;
+
+  const scheduledBy = before.scheduled_by ?? after.scheduled_by;
+  if (!scheduledBy) {
+    return 'Calendar event was orphaned (no scheduler recorded). Edit it directly in Google Calendar if needed.';
+  }
+  const accessToken = await getValidAccessToken(admin, scheduledBy);
+  if (!accessToken) {
+    return 'Google Calendar is disconnected for the scheduler — the Calendar event was not updated. Reconnect in Settings → Integrations.';
+  }
+
+  const cancelled = after.status === 'cancelled' && before.status !== 'cancelled';
+  const timingChanged =
+    after.scheduled_at !== before.scheduled_at ||
+    after.duration_minutes !== before.duration_minutes;
+  const contentChanged =
+    after.notes !== before.notes ||
+    JSON.stringify(after.participants) !== JSON.stringify(before.participants);
+
+  try {
+    if (cancelled) {
+      await deleteCalendarEvent({
+        accessToken,
+        eventId: before.google_calendar_event_id,
+      });
+      return null;
+    }
+    if (timingChanged || contentChanged) {
+      await updateCalendarEvent({
+        accessToken,
+        eventId: before.google_calendar_event_id,
+        input: {
+          scheduledAt: after.scheduled_at,
+          durationMinutes: after.duration_minutes,
+          timezone: after.timezone,
+          summary: `Interview: ${after.candidate_name} · ${jobTitle}`,
+          description: buildEventDescription({ jobTitle, notes: after.notes }),
+          attendees: [
+            { email: after.candidate_email, displayName: after.candidate_name },
+            ...after.participants.map((p) => ({
+              email: p.email,
+              displayName: p.name,
+            })),
+          ],
+        },
+      });
+    }
+    return null;
+  } catch (err) {
+    if (err instanceof GoogleCalendarError && err.status === 401) {
+      return 'Google Calendar rejected the request (token revoked). Reconnect in Settings → Integrations.';
+    }
+    if (err instanceof GoogleCalendarError && (err.status === 404 || err.status === 410)) {
+      // Event was deleted in Google Calendar directly; not fatal.
+      return null;
+    }
+    console.error('[interview] Calendar sync failed:', err);
+    return 'The interview was saved but the linked Google Calendar event could not be updated.';
+  }
+}
+
+function buildEventDescription(opts: {
+  jobTitle: string;
+  notes: string | null;
+}): string {
+  const parts: string[] = [];
+  if (opts.jobTitle) parts.push(`Role: ${opts.jobTitle}`);
+  if (opts.notes) parts.push('', 'Notes:', opts.notes);
+  parts.push('', '— Scheduled via PhotonX ATS');
+  return parts.join('\n');
+}
 
 // PATCH /api/interviews/[id]
 // Reschedule, change status, edit participants, or rotate the meeting link.
@@ -111,34 +206,12 @@ export async function PATCH(
       );
     }
     update.meeting_provider = p;
-    if (p === 'jitsi' && !current.meeting_link) {
-      update.meeting_link = generateJitsiLink({
-        jobTitle: 'interview',
-        candidateName: current.candidate_name,
-      });
-    }
     if (p === 'none') update.meeting_link = null;
   }
   if ('meeting_link' in body) {
-    const incoming = body.meeting_link
+    update.meeting_link = body.meeting_link
       ? String(body.meeting_link).trim()
       : null;
-    // Defensive guard: if the client sent meeting_link=null but the effective
-    // provider is still jitsi (which auto-generates links), don't clobber the
-    // existing link. Older versions of the dialog sent null unconditionally.
-    const effectiveProvider =
-      (update.meeting_provider as InterviewMeetingProvider) ?? current.meeting_provider;
-    if (incoming === null && effectiveProvider === 'jitsi') {
-      if (!current.meeting_link) {
-        update.meeting_link = generateJitsiLink({
-          jobTitle: jobTitle || 'interview',
-          candidateName: current.candidate_name,
-        });
-      }
-      // else: leave update.meeting_link unset → current value persists
-    } else {
-      update.meeting_link = incoming;
-    }
   }
 
   // Re-validate the merged slot if anything timing-related changed.
@@ -209,6 +282,15 @@ export async function PATCH(
   const timingChanged =
     'scheduled_at' in update || 'duration_minutes' in update;
 
+  // Best-effort Calendar sync. Failures here don't roll back the DB
+  // update — see syncCalendarForUpdate for the supported scenarios.
+  const providerWarning = await syncCalendarForUpdate(
+    admin,
+    current,
+    updated,
+    jobTitle
+  );
+
   let emailWarning: string | null = null;
   try {
     if (wasCancelled) {
@@ -230,7 +312,12 @@ export async function PATCH(
     emailWarning = err instanceof Error ? err.message : String(err);
   }
 
-  return NextResponse.json({ interview: row, emailSent: !emailWarning, emailWarning });
+  return NextResponse.json({
+    interview: row,
+    emailSent: !emailWarning,
+    emailWarning,
+    providerWarning,
+  });
 }
 
 // DELETE /api/interviews/[id]
@@ -284,6 +371,15 @@ export async function DELETE(
   const { data: row, error } = await scopedCancelQ.select('*').single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Remove the linked Calendar event if any. Tolerant of the event being
+  // already deleted manually or the recruiter having disconnected.
+  const providerWarning = await syncCalendarForUpdate(
+    admin,
+    existing as Interview,
+    row as Interview,
+    delJobTitle
+  );
+
   let emailWarning: string | null = null;
   try {
     const r = await sendInterviewInvite({
@@ -296,5 +392,11 @@ export async function DELETE(
     emailWarning = err instanceof Error ? err.message : String(err);
   }
 
-  return NextResponse.json({ ok: true, interview: row, emailSent: !emailWarning, emailWarning });
+  return NextResponse.json({
+    ok: true,
+    interview: row,
+    emailSent: !emailWarning,
+    emailWarning,
+    providerWarning,
+  });
 }

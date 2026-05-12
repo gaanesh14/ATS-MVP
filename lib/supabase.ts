@@ -147,12 +147,35 @@ export type Interview = {
   status: InterviewStatus;
   meeting_provider: InterviewMeetingProvider;
   meeting_link: string | null;
+  // Populated when meeting_provider='google_meet' and the scheduling
+  // recruiter has connected their Google account. Used by reschedule and
+  // cancel paths to patch/delete the right Calendar event instead of
+  // orphaning one and creating a duplicate. Added by
+  // docs/schema-migration-google-integration.sql.
+  google_calendar_event_id: string | null;
   participants: InterviewParticipant[];
   notes: string | null;
   reminder_sent_at: string | null;
   reminder_24h_sent_at: string | null;
   reminder_1h_sent_at: string | null;
   created_at: string;
+  updated_at: string;
+};
+
+// Per-recruiter Google OAuth state. Mirrors recruiter_google_tokens added by
+// docs/schema-migration-google-integration.sql. The encrypted_* columns are
+// only ever read on the server (see lib/crypto.ts); the client should call
+// /api/integrations/google to find out whether the current user is connected.
+export type RecruiterGoogleTokens = {
+  id: string;
+  team_member_id: string;
+  org_id: string;
+  encrypted_refresh_token: string;
+  encrypted_access_token: string | null;
+  access_token_expires_at: string | null;
+  google_email: string;
+  scopes: string[];
+  connected_at: string;
   updated_at: string;
 };
 

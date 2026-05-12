@@ -401,7 +401,7 @@ function InterviewRow({
   return (
     <div
       className={cn(
-        'group flex flex-wrap items-center gap-4 px-5 py-4 transition-colors hover:bg-slate-50/40',
+        'group flex flex-wrap items-center gap-4 px-5 py-4 transition-colors hover:bg-slate-50/20',
         !isLast && 'border-b border-slate-100'
       )}
     >
@@ -451,8 +451,15 @@ function InterviewRow({
         </div>
       )}
 
-      {/* Meet link */}
-      {interview.meeting_link ? (
+      {/* Meet link — only actionable for upcoming/live interviews. Once the
+          meeting has ended (past-due) or the row has moved to a terminal
+          status (completed / cancelled / no_show), we collapse to a passive
+          provider label so the recruiter isn't tempted to click into a
+          dead meeting. The Join button uses the actual end-time check via
+          isPastDue() rather than just `status === 'scheduled'`, so a
+          recruiter who hasn't yet marked the interview Completed still
+          loses the Join button the moment the slot is over. */}
+      {interview.meeting_link && interview.status === 'scheduled' && !stale ? (
         <div className="hidden items-center gap-1 lg:flex">
           <a
             href={interview.meeting_link}
