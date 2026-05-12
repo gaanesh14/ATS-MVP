@@ -8,11 +8,7 @@ Recruiters create jobs, candidates apply through a public link, resumes are auto
 1. **[architecture.md](architecture.md)** — what you're building, the 3-track split, data flow, file tree
 2. **[setup.md](setup.md)** — Hour 0 setup (do this all together, before splitting up)
 3. **[schema.sql](schema.sql)** — the SQL to paste into Supabase SQL Editor
-4. Your track:
-   - **[track-a-recruiter.md](track-a-recruiter.md)** — Student A
-   - **[track-b-candidate.md](track-b-candidate.md)** — Student B
-   - **[track-c-parser.md](track-c-parser.md)** — Student C
-5. **[integration.md](integration.md)** — Hour 4 end-to-end test + Vercel deploy + (optional) Hour 7 auth
+5. **[integration.md](integration.md)** -  end-to-end test + Vercel deploy + (optional) 
 
 ## The five rules for using Claude
 
@@ -28,17 +24,8 @@ Recruiters create jobs, candidates apply through a public link, resumes are auto
 |---|---|
 | Framework | Next.js 14 (App Router, TypeScript) |
 | Styling | Tailwind + shadcn/ui |
-| Database + Storage | Supabase (project ref `ebjkuzmxcadgxpmiguyz`) |
+| Database + Storage | Supabase |
 | Resume parsing | OpenAI `gpt-4o-mini` via the official `openai` SDK (JSON mode) |
 | PDF text extraction | `pdf-parse` |
 | Hosting | Vercel |
 
-## Out of scope — DO NOT BUILD
-
-- LinkedIn/Naukri/Indeed auto-posting (need paid partnerships → just paste the careers URL manually)
-- Email notifications, interview scheduling
-- Multi-recruiter teams, role-based permissions
-- AI matching score against the JD
-- Mobile app
-
-If you finish your track early, **help the next person** — don't add features. Adding "just one more thing" is the #1 reason 8-hour sprints fail.
