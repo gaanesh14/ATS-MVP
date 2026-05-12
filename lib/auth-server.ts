@@ -62,6 +62,120 @@ type RequireRoleResult = {
   admin: SupabaseClient;
 };
 
+type MemberRow = TeamMember & { org_id?: string | null };
+
+// Look up the team_members row for a signed-in user and self-heal common
+// invitee states. Returns the row, or null if the user has no membership
+// in any org.
+//
+// Why this exists: after the multi-tenancy migration, RLS on team_members
+// only lets a user see their OWN row when current_org_id() resolves — and
+// current_org_id() requires status='active'. A brand-new invitee whose row
+// is still status='pending' is therefore invisible to themselves via the
+// anon client (chicken-and-egg). The admin client used here bypasses RLS
+// and can flip pending → active so the rest of the app behaves.
+//
+// Steps:
+//   1. Look up by auth_user_id (set by the on_auth_user_created trigger).
+//   2. If not found, fall back to email and backfill auth_user_id — covers
+//      the case where the trigger didn't fire or fired before the FK was
+//      added.
+//   3. If status='pending', flip to 'active' and stamp joined_at. This is
+//      the first-login transition the AuthProvider tried to do but RLS
+//      blocked.
+//   4. Return null only when the user genuinely has no membership.
+async function resolveActiveMember(
+  admin: SupabaseClient,
+  user: User
+): Promise<MemberRow | null> {
+  // Step 1: by auth_user_id (admin client bypasses RLS).
+  let { data: row } = await admin
+    .from('team_members')
+    .select('*')
+    .eq('auth_user_id', user.id)
+    .maybeSingle();
+
+  // Step 2: fall back to email and link auth_user_id.
+  if (!row && user.email) {
+    const { data: byEmail } = await admin
+      .from('team_members')
+      .select('*')
+      .eq('email', user.email)
+      .maybeSingle();
+    if (byEmail) {
+      const patch: Record<string, unknown> = { auth_user_id: user.id };
+      if (byEmail.status === 'pending') {
+        patch.status = 'active';
+        patch.joined_at = byEmail.joined_at ?? new Date().toISOString();
+      }
+      const { data: linked } = await admin
+        .from('team_members')
+        .update(patch)
+        .eq('id', byEmail.id)
+        .select('*')
+        .single();
+      row = linked ?? { ...byEmail, ...patch };
+    }
+  }
+
+  if (!row) return null;
+
+  // Step 3: self-heal pending → active on first authenticated request.
+  if (row.status === 'pending') {
+    const { data: activated } = await admin
+      .from('team_members')
+      .update({
+        status: 'active',
+        joined_at: row.joined_at ?? new Date().toISOString(),
+      })
+      .eq('id', row.id)
+      .select('*')
+      .single();
+    if (activated) row = activated;
+  }
+
+  return row as MemberRow;
+}
+
+// Shared body for the two requireRole entry points. Throws AuthError on
+// any failure so the caller can convert it to a Response.
+async function checkSession(
+  admin: SupabaseClient,
+  token: string | null,
+  perm?: Permission
+): Promise<RequireRoleResult> {
+  if (!token) throw unauthorized();
+
+  const {
+    data: { user },
+    error,
+  } = await admin.auth.getUser(token);
+  if (error || !user) throw unauthorized('Session expired');
+
+  const member = await resolveActiveMember(admin, user);
+  if (!member) throw forbidden('No team membership found');
+  if (member.status === 'archived') {
+    throw forbidden('Your team membership has been archived');
+  }
+  // Anything other than 'active' at this point is unexpected — resolveActiveMember
+  // promotes 'pending' to 'active'. Reject defensively rather than letting a
+  // non-active row through.
+  if (member.status !== 'active') {
+    throw forbidden('No active team membership');
+  }
+
+  if (perm && !can(member.role, perm)) {
+    throw forbidden(`Missing permission: ${perm}`);
+  }
+
+  return {
+    user,
+    member,
+    orgId: member.org_id ?? null,
+    admin,
+  };
+}
+
 // Extract the Supabase access token from the request. Tries, in order:
 //   1. Authorization: Bearer <token> header (set by client fetch when explicit)
 //   2. The Supabase auth cookie set by @supabase/supabase-js v2
@@ -122,38 +236,7 @@ export async function requireRole(perm?: Permission): Promise<RequireRoleResult>
   // Note: requireRole reads cookies, so the API route handler MUST be
   // dynamic. Next.js infers this automatically once `cookies()` is called.
   const admin = getSupabaseAdmin();
-
-  // We can't read req.headers from inside `cookies()` alone, so the caller
-  // passes us the Request via the wrapper below if Authorization header
-  // support is needed. Default path is cookie-only.
-  const token = readAccessTokenFromCookies();
-  if (!token) throw unauthorized();
-
-  const {
-    data: { user },
-    error,
-  } = await admin.auth.getUser(token);
-  if (error || !user) throw unauthorized('Session expired');
-
-  const { data: row } = await admin
-    .from('team_members')
-    .select('*')
-    .eq('auth_user_id', user.id)
-    .eq('status', 'active')
-    .maybeSingle();
-  if (!row) throw forbidden('No active team membership');
-
-  const member = row as TeamMember & { org_id?: string | null };
-  if (perm && !can(member.role, perm)) {
-    throw forbidden(`Missing permission: ${perm}`);
-  }
-
-  return {
-    user,
-    member,
-    orgId: member.org_id ?? null,
-    admin,
-  };
+  return checkSession(admin, readAccessTokenFromCookies(), perm);
 }
 
 // Same as requireRole but accepts an explicit Request object so route
@@ -165,34 +248,7 @@ export async function requireRoleFromRequest(
   perm?: Permission
 ): Promise<RequireRoleResult> {
   const admin = getSupabaseAdmin();
-  const token = readAccessToken(req);
-  if (!token) throw unauthorized();
-
-  const {
-    data: { user },
-    error,
-  } = await admin.auth.getUser(token);
-  if (error || !user) throw unauthorized('Session expired');
-
-  const { data: row } = await admin
-    .from('team_members')
-    .select('*')
-    .eq('auth_user_id', user.id)
-    .eq('status', 'active')
-    .maybeSingle();
-  if (!row) throw forbidden('No active team membership');
-
-  const member = row as TeamMember & { org_id?: string | null };
-  if (perm && !can(member.role, perm)) {
-    throw forbidden(`Missing permission: ${perm}`);
-  }
-
-  return {
-    user,
-    member,
-    orgId: member.org_id ?? null,
-    admin,
-  };
+  return checkSession(admin, readAccessToken(req), perm);
 }
 
 // Cookie-only token extraction (no Request handle). Used by the default

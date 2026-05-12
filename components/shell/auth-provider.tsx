@@ -15,6 +15,7 @@ import {
   type TeamMember,
   type TeamRole,
 } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authed-fetch';
 
 type AuthContextValue = {
   loading: boolean;
@@ -66,108 +67,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [member, setMember] = useState<TeamMember | null>(null);
   const [currentOrg, setCurrentOrg] = useState<Organization | null>(null);
 
-  const fetchMember = useCallback(
-    async (user: User): Promise<TeamMember | null> => {
-      // Prefer matching by auth_user_id (FK). Fall back to email for invited
-      // members whose row existed before they signed up.
-      const byId = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('auth_user_id', user.id)
-        .maybeSingle();
-
-      if (byId.data) {
-        // The on_auth_user_created trigger may have linked auth_user_id at
-        // invite-send time, leaving status='pending'. The API requires
-        // status='active' (otherwise every authed call 403s with "No
-        // active team membership"). Flip it the first time the invitee
-        // actually shows up here.
-        if (byId.data.status === 'pending') {
-          const { data: activated } = await supabase
-            .from('team_members')
-            .update({
-              status: 'active',
-              joined_at: byId.data.joined_at ?? new Date().toISOString(),
-            })
-            .eq('id', byId.data.id)
-            .select('*')
-            .single();
-          return (activated ?? byId.data) as TeamMember;
-        }
-        return byId.data as TeamMember;
+  // Resolve the signed-in user's team_members row and organization via the
+  // server. Querying team_members from the anon client used to live here,
+  // but RLS post multi-tenancy migration hides a user's own row while it
+  // is still status='pending' — see lib/auth-server.ts:resolveActiveMember
+  // for the chicken-and-egg this avoids. The server uses the service-role
+  // key, bypasses RLS, and self-heals pending → active on first sign-in.
+  const fetchSession = useCallback(
+    async (): Promise<{ member: TeamMember | null; org: Organization | null }> => {
+      try {
+        const res = await authedFetch('/api/me', { cache: 'no-store' });
+        if (!res.ok) return { member: null, org: null };
+        const json = (await res.json()) as {
+          member: TeamMember | null;
+          organization: Organization | null;
+        };
+        return { member: json.member ?? null, org: json.organization ?? null };
+      } catch {
+        return { member: null, org: null };
       }
-
-      const byEmail = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('email', user.email ?? '')
-        .maybeSingle();
-
-      if (byEmail.data) {
-        // Backfill the link + activation if this is the first sign-in for an
-        // invited user.
-        const patch: Record<string, unknown> = { auth_user_id: user.id };
-        if (byEmail.data.status === 'pending') {
-          patch.status = 'active';
-          patch.joined_at = new Date().toISOString();
-        }
-        const { data: linked } = await supabase
-          .from('team_members')
-          .update(patch)
-          .eq('id', byEmail.data.id)
-          .select('*')
-          .single();
-        return (linked ?? byEmail.data) as TeamMember;
-      }
-
-      // Brand-new user with no row yet (signed up via Auth without going
-      // through the app form, or before the trigger landed). Provision a
-      // recruiter row so they can at least sign in.
-      const { data: created } = await supabase
-        .from('team_members')
-        .insert({
-          auth_user_id: user.id,
-          email: user.email ?? '',
-          name:
-            (user.user_metadata as { name?: string } | null)?.name ??
-            user.email?.split('@')[0] ??
-            'New member',
-          role: 'recruiter',
-          status: 'active',
-          joined_at: new Date().toISOString(),
-        })
-        .select('*')
-        .single();
-      return (created as TeamMember) ?? null;
-    },
-    []
-  );
-
-  // Look up the active organization for a team_member. Tolerates the
-  // pre-migration schema (no `org_id` column on team_members yet) by
-  // returning null instead of throwing — pages then fall back to legacy
-  // single-pool behavior. Once schema-migration-multi-tenancy.sql is
-  // applied this resolves to the user's real org.
-  const fetchOrg = useCallback(
-    async (m: TeamMember | null): Promise<Organization | null> => {
-      const orgId = (m as TeamMember & { org_id?: string | null })?.org_id;
-      if (!orgId) return null;
-      const { data } = await supabase
-        .from('organizations')
-        .select('*')
-        .eq('id', orgId)
-        .maybeSingle();
-      return (data as Organization | null) ?? null;
     },
     []
   );
 
   const refreshMember = useCallback(async () => {
     if (!authUser) return;
-    const m = await fetchMember(authUser);
+    const { member: m, org } = await fetchSession();
     setMember(m);
-    setCurrentOrg(await fetchOrg(m));
-  }, [authUser, fetchMember, fetchOrg]);
+    setCurrentOrg(org);
+  }, [authUser, fetchSession]);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
@@ -200,10 +128,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const m = await fetchMember(user);
+      const { member: m, org } = await fetchSession();
       if (!active) return;
 
-      // Stamp last_active_at — nice-to-have signal for the team list.
+      // Stamp last_active_at — nice-to-have signal for the team list. Safe
+      // to run via the anon client; once the server has self-healed
+      // status to 'active' the row is visible to the user under RLS.
       if (m) {
         supabase
           .from('team_members')
@@ -211,9 +141,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .eq('id', m.id)
           .then(() => {});
       }
-
-      const org = await fetchOrg(m);
-      if (!active) return;
 
       setAuthUser(user);
       setMember(m);
@@ -237,7 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       active = false;
       sub.subscription.unsubscribe();
     };
-  }, [router, fetchMember, fetchOrg]);
+  }, [router, fetchSession]);
 
   if (loading) {
     return (
